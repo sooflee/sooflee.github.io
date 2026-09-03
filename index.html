@@ -34,13 +34,15 @@
     var canvas = document.getElementById('tank');
     var ctx = canvas.getContext('2d');
 
-    var INK = '#cccccc';   // the tank's single tone
+    var INK = '#cccccc';   // living things: fish, plants, crawlers
+    var STONE = '#a6a6a6'; // rock and substrate, a shade darker
     var BG = '#ffffff';
 
     // Every block drawn is exactly CELL x CELL device pixels on an integer grid.
     var CELL = 8, COLS = 0, ROWS = 0, OX = 0, OY = 0;
     var BED = 2;      // rows of solid substrate along the bottom
     var FLOOR = 0;    // first row of that substrate (everything rests on FLOOR - 1)
+    var SWIM_FLOOR = 0; // swimming fish stay this far above it, clear of the crawlers
 
     function rand(a, b) { return a + Math.random() * (b - a); }
     function irand(a, b) { return Math.floor(rand(a, b + 1)); }
@@ -268,6 +270,7 @@
         OX = Math.floor((w - COLS * CELL) / 2);
         OY = Math.floor((h - ROWS * CELL) / 2);
         FLOOR = ROWS - BED;
+        SWIM_FLOOR = FLOOR - Math.max(8, Math.round(ROWS * 0.09));
         build();
     }
 
@@ -368,14 +371,14 @@
 
     // Each creature is stamped with a one-cell white gap around it, so
     // overlapping black silhouettes never fuse into a blob.
-    function stamp(cells) {
+    function stamp(cells, tone) {
         ctx.fillStyle = BG;
         for (var i = 0; i < cells.length; i += 2) {
             for (var dy = -1; dy <= 1; dy++) {
                 for (var dx = -1; dx <= 1; dx++) px(cells[i] + dx, cells[i + 1] + dy);
             }
         }
-        ctx.fillStyle = INK;
+        ctx.fillStyle = tone || INK;
         for (var j = 0; j < cells.length; j += 2) px(cells[j], cells[j + 1]);
     }
 
@@ -534,6 +537,17 @@
             if (g === self) continue;
             if (x + self.sp.w > g.x && g.x + g.sp.w > x &&
                 y + self.sp.h > g.drawY && g.drawY + g.sp.h > y) return true;
+        }
+        return false;
+    }
+
+    // Crawlers on the rocks are obstacles too, not just scenery.
+    function critterHit(x, y, w, h) {
+        for (var i = 0; i < critters.length; i++) {
+            var c = critters[i];
+            if (c.sp.mode === 'wall') continue;
+            if (x + w > c.x && c.x + c.sp.w > x &&
+                y + h > c.y && c.y + c.sp.h > y) return true;
         }
         return false;
     }
@@ -701,7 +715,7 @@
     function drawRock(r, x, y) {
         var cells = [];
         spriteCells(cells, r.rows, x, y, false);
-        stamp(cells);
+        stamp(cells, STONE);
     }
 
     // ---------- loop ----------
@@ -720,7 +734,9 @@
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = INK;
 
+        ctx.fillStyle = STONE;
         for (i = 0; i < gravel.length; i++) px(gravel[i][0], gravel[i][1]);
+        ctx.fillStyle = INK;
         for (i = 0; i < plants.length; i++) drawPlant(plants[i], t);
 
         updateRocks(t);
@@ -749,7 +765,8 @@
             var fw = f.sp.w, fh = f.sp.h;
             if (f.dart > 0) f.dart--;
             // The substrate is the floor: never let a fish dip into it.
-            var maxDrawY = FLOOR - fh;
+            // Stay clear of the bed, and of anything crawling on the pile below.
+            var maxDrawY = Math.min(SWIM_FLOOR, groundUnder(Math.round(f.x), fw) - 6) - fh;
             f.drawY = Math.min(maxDrawY, Math.round(f.y + Math.sin(t * f.bob + f.phase) * 2));
 
             // Lift clear immediately if a rock came to rest on top of a fish.
@@ -766,10 +783,12 @@
                 f.dir = space.x >= 0 ? 1 : -1;
                 step = f.dir * f.speed * rush;
                 if (blockedBy(f.x + step, f.drawY, fw, fh)) step = 0;
-            } else if (blockedBy(f.x + step, f.drawY, fw, fh) || fishHit(f, f.x + step, f.drawY)) {
+            } else if (blockedBy(f.x + step, f.drawY, fw, fh) || fishHit(f, f.x + step, f.drawY) ||
+                       critterHit(f.x + step, f.drawY, fw, fh)) {
                 if (f.turnLock <= 0) { f.dir = -f.dir; f.turnLock = 12; }
                 step = f.dir * f.speed * rush;
-                if (blockedBy(f.x + step, f.drawY, fw, fh) || fishHit(f, f.x + step, f.drawY)) step = 0;
+                if (blockedBy(f.x + step, f.drawY, fw, fh) || fishHit(f, f.x + step, f.drawY) ||
+                    critterHit(f.x + step, f.drawY, fw, fh)) step = 0;
             }
             f.x += step;
 
@@ -778,14 +797,15 @@
                 var lift = space.y >= 0 ? 0.5 : -0.5;
                 var sy2 = Math.max(1, Math.min(maxDrawY - 2, f.y + lift));
                 var sDraw = Math.round(sy2 + Math.sin(t * f.bob + f.phase) * 2);
-                if (!blockedBy(f.x, sDraw, fw, fh) && (tangled || !fishHit(f, f.x, sDraw))) f.y = sy2;
+                if (!blockedBy(f.x, sDraw, fw, fh) && !critterHit(f.x, sDraw, fw, fh) &&
+                    (tangled || !fishHit(f, f.x, sDraw))) f.y = sy2;
             }
 
             if (f.fleeT > 0) {
                 f.fleeT--;
                 var ny = Math.min(f.y + f.flee * 0.7, maxDrawY - 2);
                 var nDraw = Math.round(ny + Math.sin(t * f.bob + f.phase) * 2);
-                if (blockedBy(f.x, nDraw, fw, fh)) f.fleeT = 0;
+                if (blockedBy(f.x, nDraw, fw, fh) || critterHit(f.x, nDraw, fw, fh)) f.fleeT = 0;
                 else f.y = ny;
             }
             f.y = Math.max(1, Math.min(maxDrawY - 2, f.y));
@@ -800,7 +820,7 @@
     }
 
     function drawBed() {
-        ctx.fillStyle = INK;
+        ctx.fillStyle = STONE;
         ctx.fillRect(OX, OY + FLOOR * CELL, COLS * CELL, BED * CELL);
     }
 
