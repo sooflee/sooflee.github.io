@@ -39,6 +39,8 @@
 
     // Every block drawn is exactly CELL x CELL device pixels on an integer grid.
     var CELL = 8, COLS = 0, ROWS = 0, OX = 0, OY = 0;
+    var BED = 2;      // rows of solid substrate along the bottom
+    var FLOOR = 0;    // first row of that substrate (everything rests on FLOOR - 1)
 
     function rand(a, b) { return a + Math.random() * (b - a); }
     function irand(a, b) { return Math.floor(rand(a, b + 1)); }
@@ -131,25 +133,6 @@
                 "..###........",
                 "..##.........",
                 ".#..........."
-            ]]
-        },
-        cory: {
-            w: 13, h: 6, band: [0.72, 0.86], speed: [0.10, 0.26],
-            bob: [0.04, 0.09], flap: 4, rush: 3.6,
-            frames: [[
-                "....####.....",
-                "..##########.",
-                "#.###########",
-                "###########.#",
-                "#.###########",
-                "..####..###.."
-            ], [
-                "....####.....",
-                "...#########.",
-                "#..##########",
-                "##.########.#",
-                "#..##########",
-                "...####..##.."
             ]]
         },
     };
@@ -390,18 +373,17 @@
         ROWS = Math.floor(h / CELL);
         OX = Math.floor((w - COLS * CELL) / 2);
         OY = Math.floor((h - ROWS * CELL) / 2);
+        FLOOR = ROWS - BED;
         build();
     }
 
     function build() {
         var small = COLS < 120;
-        var floor = ROWS - 2;
         var i;
 
         gravel = [];
         for (var c = 0; c < COLS; c++) {
-            if (Math.random() < 0.5) gravel.push([c, floor + 1]);
-            if (Math.random() < 0.12) gravel.push([c, floor]);
+            if (Math.random() < 0.30) gravel.push([c, FLOOR - 1]);
         }
 
         plants = [];
@@ -424,8 +406,8 @@
 
         fish = [];
         var roster = small
-            ? ['tetra', 'angel', 'cory']
-            : ['tetra', 'tetra', 'hatchet', 'angel', 'cory', 'cory'];
+            ? ['tetra', 'angel']
+            : ['tetra', 'tetra', 'hatchet', 'angel'];
         for (i = 0; i < roster.length; i++) {
             var sp = SPECIES[roster[i]];
             var spawnY = Math.round(rand(ROWS * sp.band[0], ROWS * sp.band[1]));
@@ -463,7 +445,7 @@
         for (i = 0; i < wood.w; i++) if (wood.bottom[i] > lowest) lowest = wood.bottom[i];
         rocks.push({
             x: Math.round(rand(COLS * 0.12, COLS * 0.55)),
-            y: ROWS - 1 - lowest,
+            y: FLOOR - 1 - lowest,
             w: wood.w, h: wood.h, rows: wood.rows,
             top: wood.top, bottom: wood.bottom, fixed: true
         });
@@ -480,7 +462,7 @@
                 sp: cs,
                 x: onGlass ? (Math.random() < 0.5 ? 1 : COLS - 1 - cs.w)
                            : rand(4, Math.max(5, COLS - cs.w - 4)),
-                y: onGlass ? rand(ROWS * 0.15, ROWS * 0.6) : ROWS - 2 - cs.h,
+                y: onGlass ? rand(ROWS * 0.15, ROWS * 0.6) : FLOOR - cs.h,
                 dir: Math.random() < 0.5 ? -1 : 1,
                 speed: rand(cs.speed[0], cs.speed[1]),
                 phase: rand(0, Math.PI * 2),
@@ -526,7 +508,7 @@
     }
 
     function drawPlant(p, t) {
-        var baseY = ROWS - 2;
+        var baseY = FLOOR - 1;
         var cells = [];
         for (var k = 0; k < p.h; k++) {
             var u = k / p.h;
@@ -545,7 +527,7 @@
     // The ground under a critter's footprint: the substrate, or the top of
     // whatever rock it is walking over.
     function groundUnder(x, w) {
-        var top = ROWS - 2;
+        var top = FLOOR;
         for (var c = x; c < x + w; c++) {
             var surf = surfaceAt(c);
             if (surf < top) top = surf;
@@ -608,7 +590,7 @@
     // stacked on top of whatever landed there before.
     // Height of the pile's surface in column c (ROWS when nothing is there).
     function surfaceAt(c, skip) {
-        var top = ROWS;
+        var top = FLOOR;
         for (var i = 0; i < rocks.length; i++) {
             var r = rocks[i];
             if (r === skip || c < r.x || c >= r.x + r.w) continue;
@@ -619,7 +601,7 @@
     }
 
     function restingRow(shape, x, skip) {
-        var row = ROWS;
+        var row = FLOOR;
         for (var c = 0; c < shape.w; c++) {
             if (shape.bottom[c] < 0) continue;
             var candidate = surfaceAt(x + c, skip) - 1 - shape.bottom[c];
@@ -640,7 +622,7 @@
                 if (lo < 0) lo = x + c;
                 hi = x + c;
                 touches++;
-                if (surf >= ROWS) onFloor = true;
+                if (surf >= FLOOR) onFloor = true;
             }
         }
 
@@ -887,7 +869,7 @@
             var fw = f.sp.w, fh = f.sp.h;
             if (f.dart > 0) f.dart--;
             // The substrate is the floor: never let a fish dip into it.
-            var maxDrawY = ROWS - 2 - fh;
+            var maxDrawY = FLOOR - fh;
             f.drawY = Math.min(maxDrawY, Math.round(f.y + Math.sin(t * f.bob + f.phase) * 2));
 
             // Lift clear immediately if a rock came to rest on top of a fish.
@@ -933,6 +915,13 @@
             drawFish(f, t);
         }
 
+
+        drawBed();
+    }
+
+    function drawBed() {
+        ctx.fillStyle = INK;
+        ctx.fillRect(OX, OY + FLOOR * CELL, COLS * CELL, BED * CELL);
     }
 
     window.addEventListener('resize', resize);
