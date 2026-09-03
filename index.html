@@ -246,7 +246,7 @@
                 }
             }
         }
-        return { rows: rows, w: w, h: h, top: top, bottom: bottom };
+        return { rows: rows, w: w, h: h, top: top, bottom: bottom, dig: irand(1, 2) };
     }
 
     var fish = [], critters = [], plants = [], gravel = [], bubbles = [];
@@ -474,8 +474,8 @@
     // Where a rock dropped at column x comes to rest: on the substrate, or
     // stacked on top of whatever landed there before.
     // Height of the pile's surface in column c (ROWS when nothing is there).
-    function surfaceAt(c, skip) {
-        var top = FLOOR;
+    function surfaceAt(c, skip, dig) {
+        var top = FLOOR + (dig || 0);
         for (var i = 0; i < rocks.length; i++) {
             var r = rocks[i];
             if (r === skip || c < r.x || c >= r.x + r.w) continue;
@@ -489,7 +489,7 @@
         var row = FLOOR;
         for (var c = 0; c < shape.w; c++) {
             if (shape.bottom[c] < 0) continue;
-            var candidate = surfaceAt(x + c, skip) - 1 - shape.bottom[c];
+            var candidate = surfaceAt(x + c, skip, shape.dig) - 1 - shape.bottom[c];
             if (candidate < row) row = candidate;
         }
         return row;
@@ -594,7 +594,7 @@
     function dropRock() {
         var shape = makeRock();
         var x = irand(4, Math.max(5, COLS - shape.w - 4));
-        falling.push({ x: x, y: -shape.h, vy: 0.7, rows: shape.rows, w: shape.w, h: shape.h, top: shape.top, bottom: shape.bottom });
+        falling.push({ x: x, y: -shape.h, vy: 0.7, rows: shape.rows, w: shape.w, h: shape.h, top: shape.top, bottom: shape.bottom, dig: shape.dig });
 
         // The splash startles the whole tank; fish near it bolt hardest.
         for (var i = 0; i < fish.length; i++) {
@@ -653,7 +653,7 @@
                 }
 
                 falling.splice(i, 1);
-                rocks.push({ x: Math.round(r.x), y: rest, w: r.w, h: r.h, rows: r.rows, top: r.top, bottom: r.bottom });
+                rocks.push({ x: Math.round(r.x), y: rest, w: r.w, h: r.h, rows: r.rows, top: r.top, bottom: r.bottom, dig: r.dig });
                 if (rocks.length > 15) dropOldestRock();
                 disturb = 26;
                 disturbX = Math.round(r.x);
@@ -707,7 +707,7 @@
             if (r.y < restingRow(r, r.x, r)) {
                 rocks.splice(i, 1);
                 falling.push({ x: r.x, y: r.y, vy: 0.5, rows: r.rows, w: r.w, h: r.h,
-                               top: r.top, bottom: r.bottom, rolls: 0 });
+                               top: r.top, bottom: r.bottom, dig: r.dig, rolls: 0 });
             }
         }
     }
@@ -734,8 +734,6 @@
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = INK;
 
-        ctx.fillStyle = STONE;
-        for (i = 0; i < gravel.length; i++) px(gravel[i][0], gravel[i][1]);
         ctx.fillStyle = INK;
         for (i = 0; i < plants.length; i++) drawPlant(plants[i], t);
 
@@ -819,9 +817,12 @@
         drawBed();
     }
 
+    // Painted last: rocks settle into the gravel rather than floating on it,
+    // and no sprite's white outline can nick the bed.
     function drawBed() {
         ctx.fillStyle = STONE;
         ctx.fillRect(OX, OY + FLOOR * CELL, COLS * CELL, BED * CELL);
+        for (var i = 0; i < gravel.length; i++) px(gravel[i][0], gravel[i][1]);
     }
 
     window.addEventListener('resize', resize);
