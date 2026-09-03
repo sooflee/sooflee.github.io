@@ -1131,9 +1131,16 @@
                     newcomer.y = bagTop() + 13 + bag.fy;
                     newcomer.drawY = Math.round(newcomer.y);
                     newcomer.dir = bag.tipDir;
-                    newcomer.flee = 1;          // slips downward out of the bag
-                    newcomer.fleeT = 26;
-                    newcomer.dart = 12;
+                    newcomer.flee = 1;          // slips down and away from the bag
+                    newcomer.fleeT = 30;
+                    newcomer.dart = 34;         // and bolts once it is clear
+                    for (var sc = 0; sc < fish.length; sc++) {
+                        if (fish[sc] === newcomer) continue;
+                        startle(fish[sc], bag.x + bag.w / 2, WATER + 6, 26);
+                    }
+                    for (var sk = 0; sk < critters.length; sk++) {
+                        spook(critters[sk], bag.x + bag.w / 2, 18);
+                    }
                     splash = { x: bag.x + bag.w / 2, t0: tick };
                     for (var bb = 0; bb < 12; bb++) {
                         bubbleAt(Math.round(bag.x + bag.w / 2) + irand(-6, 6), WATER + irand(2, 10), irand(1, 4));
@@ -1142,7 +1149,7 @@
                 if (bag.tipT > 30) bag.state = 'lift';
             } else {
                 // Lifted back out of the tank.
-                bag.lift += 0.9;
+                bag.lift += 2.4;
                 bag.theta *= 0.95;
                 if (bagTop() + bag.h < 0) bag = null;
             }
@@ -1205,12 +1212,14 @@
         }
 
         var f = bag.fish;
-        f.x = x + 4 + Math.round(bag.fx);
-        f.drawY = y + 13 + Math.round(bag.fy);
-        f.y = f.drawY;
-        var inner = [];
-        spriteCells(inner, f.sp.frames[Math.floor(t / f.sp.flap) % 2], f.x, f.drawY, f.dir < 0);
-        stamp(lean(inner, y), f.sp.tone);
+        if (f.bagged) {
+            f.x = x + 4 + Math.round(bag.fx);
+            f.drawY = y + 13 + Math.round(bag.fy);
+            f.y = f.drawY;
+            var inner = [];
+            spriteCells(inner, f.sp.frames[Math.floor(t / f.sp.flap) % 2], f.x, f.drawY, f.dir < 0);
+            stamp(lean(inner, y), f.sp.tone);
+        }
 
         var cells = [];
         spriteCells(cells, BAG, x, y, false);
