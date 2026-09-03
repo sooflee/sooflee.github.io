@@ -463,7 +463,7 @@
                 fish: fish[i],
                 w: BAG[0].length,
                 h: BAG.length,
-                x: side < 0 ? 8 : COLS - BAG[0].length - 8,
+                x: side < 0 ? 24 : COLS - BAG[0].length - 24,
                 drift: -side,
                 phase: rand(0, Math.PI * 2),
                 state: 'float', tipT: 0, tipDir: 1, lift: 0,
@@ -972,7 +972,7 @@
                 var out = (f.x + fw / 2 < bag.x + bag.w / 2) ? -1 : 1;
                 f.x += out;
                 f.dir = out;
-                f.turnLock = 6;
+                f.turnLock = 18;
                 if (f.drawY < bagTop() + bag.h) { f.y += 0.5; f.drawY = Math.round(f.y); }
             }
 
@@ -994,8 +994,12 @@
                         var want = vote > 0 ? 1 : -1;
                         // Fall back in with the group even if we just turned to
                         // dodge someone -- as long as that way is actually clear.
-                        var probe = f.x + want * f.speed;
-                        if (want !== f.dir && !blockedBy(probe, f.drawY, f.sp.w, f.sp.h) &&
+                        // Look several cells ahead, not a fraction of one, or
+                        // the group's heading turns a fish straight back into
+                        // whatever it just dodged.
+                        var probe = f.x + want * 6;
+                        if (want !== f.dir && f.turnLock <= 8 &&
+                            !blockedBy(probe, f.drawY, f.sp.w, f.sp.h) &&
                             !fishHit(f, probe, f.drawY) && !critterHit(probe, f.drawY, f.sp.w, f.sp.h) &&
                             !bagHit(probe, f.drawY, f.sp.w, f.sp.h) &&
                             probe > 1 && probe + f.sp.w < COLS - 1) {
@@ -1086,8 +1090,8 @@
 
         if (bag) {
             if (tick % 14 === 0) bag.x += bag.drift;
-            if (bag.x < 7) { bag.x = 7; bag.drift = 1; }
-            if (bag.x + bag.w > COLS - 7) { bag.x = COLS - 7 - bag.w; bag.drift = -1; }
+            if (bag.x < 24) { bag.x = 24; bag.drift = 1; }
+            if (bag.x + bag.w > COLS - 24) { bag.x = COLS - 24 - bag.w; bag.drift = -1; }
 
             if (bag.state === 'float') {
                 // Floating plastic: a damped roll and bob, nudged by the water.
