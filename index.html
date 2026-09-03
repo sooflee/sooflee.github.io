@@ -43,6 +43,7 @@
     var BED = 2;      // rows of solid substrate along the bottom
     var FLOOR = 0;    // first row of that substrate (everything rests on FLOOR - 1)
     var SWIM_FLOOR = 0; // swimming fish stay this far above it, clear of the crawlers
+    var EMBED = 1;    // rows a rock settles into whatever it lands on
 
     function rand(a, b) { return a + Math.random() * (b - a); }
     function irand(a, b) { return Math.floor(rand(a, b + 1)); }
@@ -246,7 +247,7 @@
                 }
             }
         }
-        return { rows: rows, w: w, h: h, top: top, bottom: bottom, dig: irand(1, 2) };
+        return { rows: rows, w: w, h: h, top: top, bottom: bottom, dig: Math.max(1, Math.min(2, h - 4)) };
     }
 
     var fish = [], critters = [], plants = [], gravel = [], bubbles = [];
@@ -489,7 +490,7 @@
         var row = FLOOR;
         for (var c = 0; c < shape.w; c++) {
             if (shape.bottom[c] < 0) continue;
-            var candidate = surfaceAt(x + c, skip, shape.dig) - 1 - shape.bottom[c];
+            var candidate = surfaceAt(x + c, skip, shape.dig) - 1 - shape.bottom[c] + EMBED;
             if (candidate < row) row = candidate;
         }
         return row;
@@ -503,7 +504,7 @@
         for (var c = 0; c < shape.w; c++) {
             if (shape.bottom[c] < 0) continue;
             var surf = surfaceAt(x + c);
-            if (y + shape.bottom[c] + 1 === surf) {
+            if (y + shape.bottom[c] + 1 - EMBED === surf) {
                 if (lo < 0) lo = x + c;
                 hi = x + c;
                 touches++;
@@ -515,8 +516,9 @@
         if (!touches) return { stable: false, roll: Math.random() < 0.5 ? -1 : 1 };
 
         var cx = x + shape.w / 2;
-        var wide = touches >= Math.max(2, Math.floor(shape.w * 0.5));
-        var centred = cx >= lo && cx <= hi + 1;
+        var wide = touches >= Math.max(3, Math.ceil(shape.w * 0.8));
+        var span = (hi + 1) - lo;
+        var centred = cx >= lo + span * 0.25 && cx <= hi + 1 - span * 0.25;
         if (wide && centred) return { stable: true };
         return { stable: false, roll: cx < (lo + hi + 1) / 2 ? -1 : 1 };
     }
@@ -640,7 +642,7 @@
                 // It has met something. Does it sit, or roll off the shoulder?
                 var sup = supportInfo(r, Math.round(r.x), rest);
                 r.rolls = (r.rolls || 0) + (sup.stable ? 0 : 1);
-                if (!sup.stable && r.rolls < 40) {
+                if (!sup.stable && r.rolls < 90) {
                     r.y = rest;
                     var nx = Math.round(r.x) + sup.roll;
                     if (nx < 0 || nx + r.w > COLS) {
@@ -654,7 +656,7 @@
 
                 falling.splice(i, 1);
                 rocks.push({ x: Math.round(r.x), y: rest, w: r.w, h: r.h, rows: r.rows, top: r.top, bottom: r.bottom, dig: r.dig });
-                if (rocks.length > 15) dropOldestRock();
+                if (rocks.length > 26) dropOldestRock();
                 disturb = 26;
                 disturbX = Math.round(r.x);
                 for (var m = 0; m < fish.length; m++) {
