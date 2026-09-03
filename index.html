@@ -52,7 +52,7 @@
     // Each species is a pixel silhouette plus the water it prefers.
     var SPECIES = {
         tetra: {
-            shoal: true,
+            shoal: true, bobAmp: 1,
             w: 12, h: 7, band: [0.08, 0.70], speed: [0.16, 0.38],
             bob: [0.05, 0.12], flap: 5, rush: 4.2,
             frames: [[
@@ -94,6 +94,43 @@
                 ".##########",
                 "..########.",
                 "...######.."
+            ]]
+        },
+        discus: {
+            w: 18, h: 15, band: [0.22, 0.55], speed: [0.05, 0.12],
+            bob: [0.03, 0.06], flap: 7, rush: 2.8,
+            frames: [[
+                ".......####.......",
+                ".....########.....",
+                "....##########....",
+                "...############...",
+                "..#############...",
+                "..##############..",
+                "#.###############.",
+                "##############.###",
+                "#.###############.",
+                "..##############..",
+                "..#############...",
+                "...############...",
+                "....##########....",
+                ".....########.....",
+                ".......####......."
+            ], [
+                ".......####.......",
+                ".....########.....",
+                "....##########....",
+                "..#############...",
+                "..##############..",
+                ".###############..",
+                "#.###############.",
+                ".#############.###",
+                "#.###############.",
+                ".###############..",
+                "..##############..",
+                "..#############...",
+                "....##########....",
+                ".....########.....",
+                ".......####......."
             ]]
         },
         angel: {
@@ -177,54 +214,6 @@
                 ".######.."
             ]
         },
-        oto: {
-            mode: 'wall', w: 5, h: 12, speed: [0.03, 0.09], flap: 8, rush: 4,
-            frames: [[
-                "..##.",
-                ".###.",
-                ".#.#.",
-                ".###.",
-                ".###.",
-                ".###.",
-                ".###.",
-                ".###.",
-                "..##.",
-                "..##.",
-                ".####",
-                "..##."
-            ], [
-                "..##.",
-                ".###.",
-                ".#.#.",
-                ".###.",
-                ".###.",
-                ".###.",
-                ".###.",
-                "..##.",
-                "..##.",
-                ".###.",
-                "####.",
-                "..##."
-            ]]
-        },
-        shrimp: {
-            w: 10, h: 6, speed: [0.05, 0.13], flap: 4, rush: 6,
-            frames: [[
-                "..#####...",
-                ".#######..",
-                "#.#######.",
-                "##.#####.#",
-                ".#.#####..",
-                "...#.#.#.."
-            ], [
-                "..#####...",
-                "#.######..",
-                "##.######.",
-                "#.#######.",
-                ".#.#####.#",
-                "..#.#.#..."
-            ]]
-        }
     };
 
     // Rocks are generated per drop: ragged ellipses, a little smaller than a fish.
@@ -310,17 +299,27 @@
         }
 
         fish = [];
-        var schoolPace = {};
+        var schoolPace = {}, schoolSpot = {};
         var roster = small
-            ? ['tetra', 'tetra', 'tetra', 'angel']
-            : ['tetra', 'tetra', 'tetra', 'tetra', 'tetra', 'hatchet', 'angel'];
+            ? ['tetra', 'tetra', 'tetra', 'angel', 'discus']
+            : ['tetra', 'tetra', 'tetra', 'tetra', 'tetra', 'hatchet', 'angel', 'discus'];
         for (i = 0; i < roster.length; i++) {
             var sp = SPECIES[roster[i]];
-            if (sp.shoal && !schoolPace[roster[i]]) schoolPace[roster[i]] = rand(sp.speed[0], sp.speed[1]);
+            if (sp.shoal && !schoolPace[roster[i]]) {
+                schoolPace[roster[i]] = rand(sp.speed[0], sp.speed[1]);
+                // The shoal starts as a shoal, gathered around one spot.
+                schoolSpot[roster[i]] = {
+                    x: rand(COLS * 0.2, COLS * 0.8),
+                    y: rand(ROWS * sp.band[0] + 4, ROWS * sp.band[1] - 4)
+                };
+            }
             var pace = sp.shoal ? schoolPace[roster[i]] * rand(0.92, 1.08)
                                 : rand(sp.speed[0], sp.speed[1]);
-            var spawnY = Math.round(rand(ROWS * sp.band[0], ROWS * sp.band[1]));
-            var spawnX = rand(2, Math.max(3, COLS - sp.w - 2));
+            var spot = schoolSpot[roster[i]];
+            var spawnY = spot ? Math.round(spot.y + rand(-10, 10))
+                              : Math.round(rand(ROWS * sp.band[0], ROWS * sp.band[1]));
+            var spawnX = spot ? spot.x + rand(-30, 30)
+                              : rand(2, Math.max(3, COLS - sp.w - 2));
             for (var tries = 0; tries < 24; tries++) {
                 var clash = false;
                 for (var q = 0; q < fish.length; q++) {
@@ -329,13 +328,15 @@
                         spawnY + sp.h + 3 > o.y && o.y + o.sp.h + 3 > spawnY) { clash = true; break; }
                 }
                 if (!clash) break;
-                spawnX = rand(2, Math.max(3, COLS - sp.w - 2));
-                spawnY = Math.round(rand(ROWS * sp.band[0], ROWS * sp.band[1]));
+                spawnX = spot ? spot.x + rand(-24, 24)
+                              : rand(2, Math.max(3, COLS - sp.w - 2));
+                spawnY = spot ? Math.round(spot.y + rand(-9, 9))
+                              : Math.round(rand(ROWS * sp.band[0], ROWS * sp.band[1]));
             }
             fish.push({
                 sp: sp,
-                x: spawnX,
-                y: spawnY,
+                x: Math.max(2, Math.min(COLS - sp.w - 2, spawnX)),
+                y: Math.max(2, Math.min(ROWS * sp.band[1], spawnY)),
                 drawY: spawnY,
                 dir: Math.random() < 0.5 ? -1 : 1,
                 speed: pace,
@@ -350,16 +351,14 @@
 
         rocks = [];
         critters = [];
-        var kinds = ['snail', 'oto'];
+        var kinds = ['snail'];
         for (i = 0; i < kinds.length; i++) {
             var cs = CRITTERS[kinds[i]];
-            var onGlass = cs.mode === 'wall';
             critters.push({
                 kind: kinds[i],
                 sp: cs,
-                x: onGlass ? (Math.random() < 0.5 ? 1 : COLS - 1 - cs.w)
-                           : rand(4, Math.max(5, COLS - cs.w - 4)),
-                y: onGlass ? rand(ROWS * 0.15, ROWS * 0.6) : FLOOR - cs.h,
+                x: rand(4, Math.max(5, COLS - cs.w - 4)),
+                y: FLOOR - cs.h,
                 dir: Math.random() < 0.5 ? -1 : 1,
                 speed: rand(cs.speed[0], cs.speed[1]),
                 phase: rand(0, Math.PI * 2),
@@ -437,16 +436,7 @@
             var c = critters[i];
             if (c.dartT > 0) c.dartT--;
 
-            if (c.sp.mode === 'wall') {
-                // Grazing the glass: creeps up and down its pane.
-                if (c.hideT > 0 && c.dartT <= 0) c.hideT--;
-                else {
-                    c.y += c.dir * c.speed * (c.dartT > 0 ? c.sp.rush : 1);
-                    var floorY = groundUnder(Math.round(c.x), c.sp.w) - c.sp.h;
-                    if (c.y < 1) { c.y = 1; c.dir = 1; }
-                    if (c.y > floorY) { c.y = floorY; c.dir = -1; }
-                }
-            } else {
+            {
                 if (c.hideT > 0 && c.dartT <= 0) {
                     c.hideT--;
                 } else {
@@ -461,12 +451,13 @@
                 else if (c.y < target) c.y += Math.min(2, target - c.y);
             }
 
-            var rows;
-            if (c.hideT > 0 && c.dartT <= 0 && c.sp.hidden) rows = c.sp.hidden;
-            else rows = c.sp.frames[Math.floor(t / (c.dartT > 0 ? 2 : c.sp.flap) + c.phase * 3) % 2];
             var cells = [];
-            spriteCells(cells, rows, Math.round(c.x), Math.round(c.y),
-                        c.sp.mode === 'wall' ? c.x > COLS / 2 : c.dir < 0);
+            {
+                var rows;
+                if (c.hideT > 0 && c.dartT <= 0 && c.sp.hidden) rows = c.sp.hidden;
+                else rows = c.sp.frames[Math.floor(t / (c.dartT > 0 ? 2 : c.sp.flap) + c.phase * 3) % 2];
+                spriteCells(cells, rows, Math.round(c.x), Math.round(c.y), c.dir < 0);
+            }
             stamp(cells);
         }
     }
@@ -558,7 +549,6 @@
     function critterHit(x, y, w, h) {
         for (var i = 0; i < critters.length; i++) {
             var c = critters[i];
-            if (c.sp.mode === 'wall') continue;
             if (x + w > c.x && c.x + c.sp.w > x &&
                 y + h > c.y && c.y + c.sp.h > y) return true;
         }
@@ -573,8 +563,8 @@
             if (g === f) continue;
             var dx = (f.x + f.sp.w / 2) - (g.x + g.sp.w / 2);
             var dy = (f.drawY + f.sp.h / 2) - (g.drawY + g.sp.h / 2);
-            if (Math.abs(dx) < (f.sp.w + g.sp.w) / 2 + 5 &&
-                Math.abs(dy) < (f.sp.h + g.sp.h) / 2 + 4) {
+            if (Math.abs(dx) < (f.sp.w + g.sp.w) / 2 + 13 &&
+                Math.abs(dy) < (f.sp.h + g.sp.h) / 2 + 9) {
                 near = true;
                 sx += dx >= 0 ? 1 : -1;
                 sy += dy >= 0 ? 1 : -1;
@@ -796,7 +786,7 @@
             // The substrate is the floor: never let a fish dip into it.
             // Stay clear of the bed, and of anything crawling on the pile below.
             var maxDrawY = Math.min(SWIM_FLOOR, groundUnder(Math.round(f.x), fw) - 6) - fh;
-            f.drawY = Math.min(maxDrawY, Math.round(f.y + Math.sin(t * f.bob + f.phase) * 2));
+            f.drawY = Math.min(maxDrawY, Math.round(f.y + Math.sin(t * f.bob + f.phase) * (f.sp.bobAmp || 2)));
 
             // Lift clear immediately if a rock came to rest on top of a fish.
             for (var esc = 0; esc < 12 && blockedBy(f.x, f.drawY, fw, fh); esc++) { f.y -= 1; f.drawY -= 1; }
@@ -808,7 +798,7 @@
                     if (g === f || g.sp !== f.sp) continue;
                     var gdx = (g.x + g.sp.w / 2) - (f.x + f.sp.w / 2);
                     if (nearestDx === null || Math.abs(gdx) < Math.abs(nearestDx)) nearestDx = gdx;
-                    if (Math.abs(gdx) < 60 && Math.abs(g.drawY - f.drawY) < 28) {
+                    if (Math.abs(gdx) < 85 && Math.abs(g.drawY - f.drawY) < 34) {
                         n++;
                         sumY += g.y;
                         vote += g.dir;
@@ -820,9 +810,9 @@
                         if (want !== f.dir && f.turnLock <= 0) { f.dir = want; f.turnLock = 6; }
                     }
                     var meanY = sumY / n;
-                    if (Math.abs(meanY - f.y) > 2) {
-                        var cy = f.y + (meanY > f.y ? 0.3 : -0.3);
-                        var cDraw = Math.round(cy + Math.sin(t * f.bob + f.phase) * 2);
+                    if (Math.abs(meanY - f.y) > 13) {
+                        var cy = f.y + (meanY > f.y ? 0.22 : -0.22);
+                        var cDraw = Math.round(cy + Math.sin(t * f.bob + f.phase) * (f.sp.bobAmp || 2));
                         if (!blockedBy(f.x, cDraw, fw, fh) && !critterHit(f.x, cDraw, fw, fh) &&
                             !fishHit(f, f.x, cDraw)) f.y = cy;
                     }
@@ -834,6 +824,18 @@
 
             if (f.turnLock > 0) f.turnLock--;
             var rush = f.dart > 0 ? f.sp.rush : 1;
+            if (f.sp.shoal && f.dart <= 0) {
+                // Ease off rather than crowd the fish in front.
+                for (var m = 0; m < fish.length; m++) {
+                    var ahead = fish[m];
+                    if (ahead === f || ahead.sp !== f.sp) continue;
+                    var gap = (ahead.x - f.x) * f.dir;
+                    if (gap > 0 && gap < f.sp.w + 8 && Math.abs(ahead.drawY - f.drawY) < 8) {
+                        rush *= 0.55;
+                        break;
+                    }
+                }
+            }
             var space = personalSpace(f);
             var tangled = fishHit(f, f.x, f.drawY);
             var step = f.dir * f.speed * rush;
@@ -854,9 +856,9 @@
 
             // Ease apart from a crowding neighbour, one notch at a time.
             if (space) {
-                var lift = space.y >= 0 ? 0.5 : -0.5;
+                var lift = space.y >= 0 ? 0.7 : -0.7;
                 var sy2 = Math.max(1, Math.min(maxDrawY - 2, f.y + lift));
-                var sDraw = Math.round(sy2 + Math.sin(t * f.bob + f.phase) * 2);
+                var sDraw = Math.round(sy2 + Math.sin(t * f.bob + f.phase) * (f.sp.bobAmp || 2));
                 if (!blockedBy(f.x, sDraw, fw, fh) && !critterHit(f.x, sDraw, fw, fh) &&
                     (tangled || !fishHit(f, f.x, sDraw))) f.y = sy2;
             }
@@ -864,7 +866,7 @@
             if (f.fleeT > 0) {
                 f.fleeT--;
                 var ny = Math.min(f.y + f.flee * 0.7, maxDrawY - 2);
-                var nDraw = Math.round(ny + Math.sin(t * f.bob + f.phase) * 2);
+                var nDraw = Math.round(ny + Math.sin(t * f.bob + f.phase) * (f.sp.bobAmp || 2));
                 if (blockedBy(f.x, nDraw, fw, fh) || critterHit(f.x, nDraw, fw, fh)) f.fleeT = 0;
                 else f.y = ny;
             }
