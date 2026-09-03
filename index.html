@@ -41,8 +41,8 @@
     // Every block drawn is exactly CELL x CELL device pixels on an integer grid.
     var CELL = 8, COLS = 0, ROWS = 0, OX = 0, OY = 0;
     var BED = 4;      // rows of solid substrate along the bottom
-    var AIR = 3;      // rows of air above the waterline
-    var WATER = 3;    // row the water surface sits on
+    var AIR = 14;     // rows of air above the waterline (room for a floating bag)
+    var WATER = 14;   // row the water surface sits on
     var FLOOR = 0;    // first row of that substrate (everything rests on FLOOR - 1)
     var SWIM_FLOOR = 0; // swimming fish stay this far above it, clear of the crawlers
     var EMBED = 1;
@@ -301,27 +301,32 @@
     // A new fish arrives the way it does from a shop: floating in a tied bag,
     // acclimatising at the surface before it is let out.
     var BAG = [
-        "........##..##............",
-        ".......####.####..........",
-        "........########..........",
-        ".........######...........",
-        ".........#....#...........",
-        "........#......#..........",
-        ".......#........#.........",
-        "......#..........#........",
-        ".....#............#.......",
-        "....#..............#......",
-        "...#................#.....",
-        "..#..................#....",
-        "..#..................#....",
-        ".#....................#...",
-        ".#....................#...",
-        ".#....................#...",
-        ".#....................#...",
-        "..#..................#....",
-        "..#..................#....",
-        "...#................#.....",
-        "....################......"
+        "..............##..##............",
+        ".............####.####..........",
+        ".............##########.........",
+        "..............########..........",
+        "..............#......#..........",
+        ".............#........#.........",
+        "............#..........#........",
+        "..........#..............#......",
+        ".........#................#.....",
+        "........#..................#....",
+        ".......#....................#...",
+        "......#......................#..",
+        ".....#........................#.",
+        ".....#........................#.",
+        "....#..........................#",
+        "....#..........................#",
+        "....#..........................#",
+        "....#..........................#",
+        "....#..........................#",
+        ".....#........................#.",
+        ".....#........................#.",
+        "......#......................#..",
+        ".......#....................#...",
+        "........#..................#....",
+        ".........#................#.....",
+        "..........################......"
     ];
     var bag = null;
     var BAG_MS = 45000;
@@ -1045,12 +1050,12 @@
     function drawBag(t) {
         var bob = Math.round(Math.sin(t * 0.08 + bag.phase) * 1.2);
         var x = Math.round(bag.x);
-        var y = WATER - 4 + bob;          // rides low, knot above the water
+        var y = WATER - 12 + bob;         // waterline crosses it: air above, water below
 
         // the fish inside, riding with the bag
         var f = bag.fish;
         f.x = x + Math.round((bag.w - f.sp.w) / 2);
-        f.drawY = y + 5 + Math.round(Math.sin(t * 0.2 + bag.phase));
+        f.drawY = y + 13 + Math.round(Math.sin(t * 0.2 + bag.phase));
         f.y = f.drawY;
         var inner = [];
         spriteCells(inner, f.sp.frames[Math.floor(t / f.sp.flap) % 2], f.x, f.drawY, f.dir < 0);
@@ -1059,6 +1064,13 @@
         var cells = [];
         spriteCells(cells, BAG, x, y, false);
         stamp(cells, STONE);
+
+        // the water it is half filled with, its level just above the tank's
+        var lvl = y + 10;
+        var row = BAG[lvl - y];
+        var left = row.indexOf('#'), right = row.lastIndexOf('#');
+        ctx.fillStyle = INK;
+        for (var c = left + 1; c < right; c++) px(x + c, lvl);
     }
 
     // Painted last: rocks settle into the gravel rather than floating on it,
