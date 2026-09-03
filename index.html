@@ -94,7 +94,7 @@
         canvas.width = w;
         canvas.height = h;
 
-        var targetCols = canvas.clientWidth < 640 ? 56 : 100;
+        var targetCols = canvas.clientWidth < 640 ? 82 : 150;
         CELL = Math.max(3, Math.round(w / targetCols));
         COLS = Math.floor(w / CELL);
         ROWS = Math.floor(h / CELL);
@@ -104,7 +104,7 @@
     }
 
     function build() {
-        var small = COLS < 70;
+        var small = COLS < 100;
         var floor = ROWS - 2;
         var i;
 
@@ -115,7 +115,7 @@
         }
 
         plants = [];
-        var pCount = small ? 3 : 4;
+        var pCount = 4;
         for (i = 0; i < pCount; i++) {
             var px0 = Math.round((i + rand(0.28, 0.72)) * (COLS / pCount));
             px0 = Math.max(2, Math.min(COLS - 12, px0));
@@ -123,7 +123,7 @@
             for (var b = 0; b < blades; b++) {
                 plants.push({
                     x: px0 + b * irand(4, 7),
-                    h: irand(Math.round(ROWS * 0.17), Math.round(ROWS * 0.33)),
+                    h: irand(Math.round(ROWS * 0.12), Math.round(ROWS * 0.22)),
                     phase: rand(0, Math.PI * 2),
                     speed: rand(0.05, 0.09),
                     waves: rand(2.4, 4.0),
@@ -153,7 +153,7 @@
         }
 
         fish = [];
-        var fCount = small ? 2 : 3;
+        var fCount = 3;
         for (i = 0; i < fCount; i++) {
             fish.push({
                 x: rand(0, COLS),
