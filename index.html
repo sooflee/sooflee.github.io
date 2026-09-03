@@ -19,6 +19,8 @@
         width: 100vw;
         height: 100vh;
         height: 100dvh;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
         touch-action: none;
     }
 </style>
@@ -27,346 +29,266 @@
 <canvas id="tank"></canvas>
 <script>
 (function () {
-    const canvas = document.getElementById('tank');
-    const ctx = canvas.getContext('2d');
-    let W = 0, H = 0;
+    var canvas = document.getElementById('tank');
+    var ctx = canvas.getContext('2d');
 
-    const rand = (a, b) => a + Math.random() * (b - a);
-    const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+    // Every block drawn is exactly CELL x CELL device pixels on an integer grid.
+    var CELL = 8, COLS = 0, ROWS = 0, OX = 0, OY = 0;
 
-    let jellies = [], fish = [], plants = [], bubbles = [], gravel = [];
+    function rand(a, b) { return a + Math.random() * (b - a); }
+    function irand(a, b) { return Math.floor(rand(a, b + 1)); }
+
+    // ---------- sprites (# = black, . = empty) ----------
+    var JELLY = [
+        [
+            "....#####....",
+            "..#########..",
+            ".###########.",
+            "#############",
+            "#############",
+            "#############",
+            "#.##.###.##.#"
+        ],
+        [
+            ".....###.....",
+            "...#######...",
+            "..#########..",
+            ".###########.",
+            "#############",
+            "#############",
+            "##.##.#.##.##"
+        ]
+    ];
+    var JELLY_ANCHORS = [2, 5, 7, 10];
+
+    var FISH = [
+        [
+            "......###...",
+            "#...########",
+            "##.#########",
+            "#########.##",
+            "##.#########",
+            "#...########",
+            "......###..."
+        ],
+        [
+            "......###...",
+            "....########",
+            "#..#########",
+            "#########.##",
+            "#..#########",
+            "....########",
+            "......###..."
+        ]
+    ];
+
+    var jellies = [], fish = [], plants = [], gravel = [], bubbles = [];
 
     function resize() {
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        W = canvas.clientWidth;
-        H = canvas.clientHeight;
-        canvas.width = Math.round(W * dpr);
-        canvas.height = Math.round(H * dpr);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        var dpr = Math.min(window.devicePixelRatio || 1, 3);
+        var w = Math.floor(canvas.clientWidth * dpr);
+        var h = Math.floor(canvas.clientHeight * dpr);
+        canvas.width = w;
+        canvas.height = h;
+
+        var targetCols = canvas.clientWidth < 640 ? 56 : 100;
+        CELL = Math.max(3, Math.round(w / targetCols));
+        COLS = Math.floor(w / CELL);
+        ROWS = Math.floor(h / CELL);
+        OX = Math.floor((w - COLS * CELL) / 2);
+        OY = Math.floor((h - ROWS * CELL) / 2);
         build();
     }
 
     function build() {
-        const small = Math.min(W, H) < 620;
-        const k = Math.max(0.6, Math.min(1.5, Math.min(W, H) / 680));
-        const floor = H - Math.max(8, H * 0.02);
+        var small = COLS < 70;
+        var floor = ROWS - 2;
+        var i;
 
-        // --- plants along the bottom ---
+        gravel = [];
+        for (var c = 0; c < COLS; c++) {
+            if (Math.random() < 0.5) gravel.push([c, floor + 1]);
+            if (Math.random() < 0.12) gravel.push([c, floor]);
+        }
+
         plants = [];
-        const plantCount = small ? 12 : 16;
-        for (let i = 0; i < plantCount; i++) {
-            const x = (i + rand(0.15, 0.85)) * (W / plantCount);
-            const clump = (Math.random() < 0.35) ? 3 : 2;
-            for (let b = 0; b < clump; b++) {
+        var pCount = small ? 3 : 4;
+        for (i = 0; i < pCount; i++) {
+            var px0 = Math.round((i + rand(0.28, 0.72)) * (COLS / pCount));
+            px0 = Math.max(2, Math.min(COLS - 12, px0));
+            var blades = 2;
+            for (var b = 0; b < blades; b++) {
                 plants.push({
-                    x: x + rand(-14, 14),
-                    y: floor + rand(-2, 2),
-                    h: rand(H * 0.10, H * 0.30) * rand(0.8, 1.15),
-                    w: rand(7, 16),
-                    amp: rand(14, 40),
-                    freq: rand(0.7, 1.6),
-                    speed: rand(0.25, 0.55),
+                    x: px0 + b * irand(4, 7),
+                    h: irand(Math.round(ROWS * 0.17), Math.round(ROWS * 0.33)),
                     phase: rand(0, Math.PI * 2),
-                    lean: rand(-0.25, 0.25),
-                    tone: pick(['#111111', '#111111', '#3a3a3a', '#6d6d6d'])
+                    speed: rand(0.05, 0.09),
+                    waves: rand(2.4, 4.0),
+                    bend: rand(1.5, 2.6)
                 });
             }
         }
 
-        // --- gravel specks ---
-        gravel = [];
-        const pebbles = small ? 90 : 180;
-        for (let i = 0; i < pebbles; i++) {
-            gravel.push({
-                x: rand(0, W),
-                y: floor + rand(-3, 4),
-                r: rand(0.7, 2.4),
-                tone: pick(['#1a1a1a', '#4a4a4a', '#8a8a8a', '#b5b5b5'])
-            });
-        }
-
-        // --- jellyfish ---
+        var domeH = JELLY[0].length;
         jellies = [];
-        const jCount = small ? 3 : 4;
-        for (let i = 0; i < jCount; i++) {
-            const s = rand(0.7, 1.35) * (small ? 0.75 : 1);
+        var jCount = small ? 1 : 2;
+        for (i = 0; i < jCount; i++) {
+            var tail = small ? 6 : 8;
+            var top = 1;
+            var bottom = Math.max(top + 4, ROWS - domeH - tail - 6);
             jellies.push({
-                x: (i + rand(0.2, 0.8)) * (W / jCount),
-                y: rand(H * 0.1, H * 0.65),
-                r: 40 * s * k,
-                drift: rand(-9, 9),
-                rise: rand(-16, -6),
-                pulse: rand(0.7, 1.15),
+                x: Math.max(1, Math.min(COLS - JELLY[0][0].length - 1,
+                    Math.round((i + rand(0.25, 0.75)) * (COLS / jCount)) - 6)),
+                y: irand(top + 2, bottom),
+                top: top,
+                bottom: bottom,
+                up: Math.random() < 0.5,
+                tail: tail,
                 phase: rand(0, Math.PI * 2),
-                wobble: rand(0, Math.PI * 2),
-                filled: Math.random() < 0.35,
-                tone: pick(['#111111', '#111111', '#4a4a4a'])
+                drift: Math.random() < 0.5 ? -1 : 1
             });
         }
 
-        // --- fish ---
         fish = [];
-        const fCount = small ? 6 : 8;
-        for (let i = 0; i < fCount; i++) {
-            const s = rand(0.6, 1.3) * (small ? 0.8 : 1);
+        var fCount = small ? 2 : 3;
+        for (i = 0; i < fCount; i++) {
             fish.push({
-                x: rand(0, W),
-                y: rand(H * 0.08, H * 0.78),
-                len: 44 * s * k,
+                x: rand(0, COLS),
+                y: Math.round(rand(ROWS * 0.10, ROWS * 0.60)),
                 dir: Math.random() < 0.5 ? -1 : 1,
-                speed: rand(16, 42) / s,
-                bobAmp: rand(4, 14),
-                bobSpeed: rand(0.4, 1.0),
-                tailSpeed: rand(4, 8),
+                speed: rand(0.35, 0.8),
                 phase: rand(0, Math.PI * 2),
-                filled: Math.random() < 0.45,
-                tone: pick(['#111111', '#111111', '#333333', '#666666'])
+                bob: rand(0.10, 0.22)
             });
         }
 
         bubbles = [];
     }
 
-    function spawnBubble() {
-        bubbles.push({
-            x: rand(0, W),
-            y: H + 10,
-            r: rand(1.2, 3.6),
-            speed: rand(14, 34),
-            sway: rand(4, 12),
-            phase: rand(0, Math.PI * 2)
-        });
+    // ---------- grid drawing ----------
+    function px(cx, cy) {
+        if (cx < 0 || cy < 0 || cx >= COLS || cy >= ROWS) return;
+        ctx.fillRect(OX + cx * CELL, OY + cy * CELL, CELL, CELL);
     }
 
-    // ---------- drawing ----------
+    // Each creature is stamped with a one-cell white gap around it, so
+    // overlapping black silhouettes never fuse into a blob.
+    function stamp(cells) {
+        ctx.fillStyle = '#ffffff';
+        for (var i = 0; i < cells.length; i += 2) {
+            for (var dy = -1; dy <= 1; dy++) {
+                for (var dx = -1; dx <= 1; dx++) px(cells[i] + dx, cells[i + 1] + dy);
+            }
+        }
+        ctx.fillStyle = '#000000';
+        for (var j = 0; j < cells.length; j += 2) px(cells[j], cells[j + 1]);
+    }
+
+    function spriteCells(out, rows, x, y, flip) {
+        var w = rows[0].length;
+        for (var r = 0; r < rows.length; r++) {
+            var line = rows[r];
+            for (var c = 0; c < w; c++) {
+                if (line.charAt(c) === '#') out.push(x + (flip ? w - 1 - c : c), y + r);
+            }
+        }
+    }
 
     function drawPlant(p, t) {
-        const seg = 26;
-        const pts = [];
-        for (let i = 0; i <= seg; i++) {
-            const u = i / seg;
-            const bend = Math.sin(u * p.freq * Math.PI - t * p.speed * 1.5 + p.phase);
-            const x = p.x + (p.amp * bend + p.lean * p.h * 0.5) * Math.pow(u, 1.35);
-            const y = p.y - p.h * u;
-            pts.push([x, y]);
+        var baseY = ROWS - 2;
+        var cells = [];
+        for (var k = 0; k < p.h; k++) {
+            var u = k / p.h;
+            var root = Math.min(1, k / 3);
+            var off = Math.round(Math.sin(p.phase + u * p.waves + t * p.speed) * p.bend * root);
+            var w = u < 0.45 ? 3 : (u < 0.85 ? 2 : 1);
+            for (var i = 0; i < w; i++) cells.push(p.x + off + i, baseY - k);
         }
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.strokeStyle = p.tone;
-        for (let i = 0; i < seg; i++) {
-            const u = i / seg;
-            ctx.beginPath();
-            ctx.lineWidth = p.w * (1 - Math.pow(u, 2.4)) + 1.1;
-            ctx.moveTo(pts[i][0], pts[i][1]);
-            ctx.lineTo(pts[i + 1][0], pts[i + 1][1]);
-            ctx.stroke();
-        }
+        stamp(cells);
     }
 
     function drawJelly(j, t) {
-        const pulse = Math.sin(t * j.pulse * 2 + j.phase);
-        const r = j.r;
-        const bw = r * (1 + 0.13 * pulse);
-        const bh = r * (0.86 - 0.16 * pulse);
-        const x = j.x;
-        const y = j.y;
+        var f = Math.floor(t / 5 + j.phase) % 2;
+        var rows = JELLY[f];
+        var x = Math.round(j.x);
+        var y = Math.round(j.y);
+        var cells = [];
+        spriteCells(cells, rows, x, y, false);
 
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(Math.sin(t * 0.4 + j.wobble) * 0.09);
-
-        // bell
-        ctx.beginPath();
-        ctx.moveTo(-bw, 0);
-        ctx.bezierCurveTo(-bw, -bh * 1.75, bw, -bh * 1.75, bw, 0);
-        // scalloped hem
-        const lobes = 4;
-        for (let i = 0; i < lobes; i++) {
-            const x0 = bw - (2 * bw / lobes) * i;
-            const x1 = bw - (2 * bw / lobes) * (i + 1);
-            ctx.quadraticCurveTo((x0 + x1) / 2, bh * 0.34, x1, 0);
+        var hemY = y + rows.length;
+        for (var a = 0; a < JELLY_ANCHORS.length; a++) {
+            var ax = x + JELLY_ANCHORS[a];
+            var len = j.tail - (a % 2) - (f === 1 ? 1 : 0);
+            for (var k = 0; k < len; k++) {
+                var off = Math.round(Math.sin(t * 0.13 + j.phase + a * 1.3 + k * 0.5) * 1.4);
+                cells.push(ax + off, hemY + k);
+            }
         }
-        ctx.closePath();
-        ctx.lineWidth = Math.max(1.2, r * 0.055);
-        if (j.filled) {
-            ctx.fillStyle = j.tone;
-            ctx.globalAlpha = 0.9;
-            ctx.fill();
-            ctx.globalAlpha = 1;
-        } else {
-            ctx.fillStyle = '#ffffff';
-            ctx.fill();
-            ctx.strokeStyle = j.tone;
-            ctx.stroke();
-        }
-
-        // oral arms
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = j.tone;
-        for (let i = 0; i < 4; i++) {
-            const ox = -bw * 0.45 + (bw * 0.9 / 3) * i;
-            const s = Math.sin(t * 1.5 + j.phase + i * 0.7);
-            ctx.beginPath();
-            ctx.lineWidth = Math.max(1, r * 0.075);
-            ctx.moveTo(ox, bh * 0.1);
-            ctx.quadraticCurveTo(ox + s * r * 0.22, bh + r * 0.35, ox + s * r * 0.5, bh + r * 0.9);
-            ctx.stroke();
-        }
-
-        // long tentacles
-        for (let i = 0; i < 6; i++) {
-            const ox = -bw + (2 * bw / 5) * i;
-            const s = Math.sin(t * 1.1 + j.phase + i * 1.1);
-            const len = r * (1.9 + (i % 3) * 0.7);
-            ctx.beginPath();
-            ctx.lineWidth = Math.max(0.7, r * 0.032);
-            ctx.globalAlpha = 0.65;
-            ctx.moveTo(ox, 0);
-            ctx.bezierCurveTo(
-                ox + s * r * 0.35, len * 0.4,
-                ox - s * r * 0.45, len * 0.72,
-                ox + s * r * 0.6, len
-            );
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-        }
-        ctx.restore();
+        stamp(cells);
     }
 
     function drawFish(f, t) {
-        const L = f.len;
-        const wag = Math.sin(t * f.tailSpeed + f.phase);
-        ctx.save();
-        ctx.translate(f.x, f.y + Math.sin(t * f.bobSpeed + f.phase) * f.bobAmp);
-        ctx.scale(f.dir, 1);
-        ctx.rotate(wag * 0.05);
-
-        // body
-        ctx.beginPath();
-        ctx.moveTo(L * 0.62, 0);
-        ctx.bezierCurveTo(L * 0.3, -L * 0.34, -L * 0.2, -L * 0.3, -L * 0.42, 0);
-        ctx.bezierCurveTo(-L * 0.2, L * 0.3, L * 0.3, L * 0.34, L * 0.62, 0);
-        ctx.closePath();
-        ctx.lineWidth = Math.max(1.1, L * 0.045);
-        if (f.filled) {
-            ctx.fillStyle = f.tone;
-            ctx.fill();
-        } else {
-            ctx.fillStyle = '#ffffff';
-            ctx.fill();
-            ctx.strokeStyle = f.tone;
-            ctx.stroke();
-        }
-
-        // tail
-        const ty = wag * L * 0.16;
-        ctx.beginPath();
-        ctx.moveTo(-L * 0.38, 0);
-        ctx.quadraticCurveTo(-L * 0.62, ty * 0.5, -L * 0.82, ty - L * 0.28);
-        ctx.quadraticCurveTo(-L * 0.66, ty * 0.4, -L * 0.82, ty + L * 0.28);
-        ctx.quadraticCurveTo(-L * 0.62, ty * 0.5, -L * 0.38, 0);
-        ctx.closePath();
-        if (f.filled) {
-            ctx.fillStyle = f.tone;
-            ctx.fill();
-        } else {
-            ctx.fillStyle = '#ffffff';
-            ctx.fill();
-            ctx.strokeStyle = f.tone;
-            ctx.stroke();
-        }
-
-        // dorsal fin
-        ctx.beginPath();
-        ctx.moveTo(L * 0.12, -L * 0.26);
-        ctx.quadraticCurveTo(L * 0.02, -L * 0.52 - wag * L * 0.04, -L * 0.18, -L * 0.24);
-        ctx.closePath();
-        if (f.filled) { ctx.fillStyle = f.tone; ctx.fill(); }
-        else { ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.strokeStyle = f.tone; ctx.stroke(); }
-
-        // belly fin
-        ctx.beginPath();
-        ctx.moveTo(L * 0.05, L * 0.24);
-        ctx.quadraticCurveTo(-L * 0.05, L * 0.44 + wag * L * 0.04, -L * 0.2, L * 0.22);
-        ctx.closePath();
-        if (f.filled) { ctx.fillStyle = f.tone; ctx.fill(); }
-        else { ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.strokeStyle = f.tone; ctx.stroke(); }
-
-        // eye
-        ctx.beginPath();
-        ctx.arc(L * 0.36, -L * 0.07, Math.max(1.1, L * 0.052), 0, Math.PI * 2);
-        ctx.fillStyle = f.filled ? '#ffffff' : f.tone;
-        ctx.fill();
-
-        ctx.restore();
-    }
-
-    function drawBubble(b, t) {
-        ctx.beginPath();
-        ctx.arc(b.x + Math.sin(t * 1.4 + b.phase) * b.sway, b.y, b.r, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(0,0,0,0.28)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        var frame = Math.floor(t / 3 + f.phase * 3) % 2;
+        var y = Math.round(f.y + Math.sin(t * f.bob + f.phase) * 2);
+        var cells = [];
+        spriteCells(cells, FISH[frame], Math.round(f.x), y, f.dir < 0);
+        stamp(cells);
     }
 
     // ---------- loop ----------
-    let last = performance.now();
-    let bubbleTimer = 0;
+    var tick = 0, last = 0;
+    var STEP = 90; // ms per animation step -> chunky, pixel-art timing
 
     function frame(now) {
-        const dt = Math.min((now - last) / 1000, 0.05);
+        requestAnimationFrame(frame);
+        if (now - last < STEP) return;
         last = now;
-        const t = now / 1000;
+        tick++;
+        var t = tick;
+        var i;
 
-        ctx.clearRect(0, 0, W, H);
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, W, H);
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#000000';
 
-        // gravel
-        for (const g of gravel) {
-            ctx.beginPath();
-            ctx.arc(g.x, g.y, g.r, 0, Math.PI * 2);
-            ctx.fillStyle = g.tone;
-            ctx.fill();
+        for (i = 0; i < gravel.length; i++) px(gravel[i][0], gravel[i][1]);
+        for (i = 0; i < plants.length; i++) drawPlant(plants[i], t);
+
+        if (Math.random() < 0.015 && bubbles.length < 2) {
+            bubbles.push({ x: irand(2, COLS - 3), y: ROWS - 3 });
+        }
+        for (i = bubbles.length - 1; i >= 0; i--) {
+            var b = bubbles[i];
+            if (tick % 2 === 0) b.y -= 1;
+            if (b.y < 0) bubbles.splice(i, 1);
+            else px(b.x + (tick % 6 < 3 ? 0 : 1), b.y);
         }
 
-        // plants
-        for (const p of plants) drawPlant(p, t);
-
-        // bubbles
-        bubbleTimer -= dt;
-        if (bubbleTimer <= 0) {
-            spawnBubble();
-            bubbleTimer = rand(0.5, 1.8);
-        }
-        for (let i = bubbles.length - 1; i >= 0; i--) {
-            const b = bubbles[i];
-            b.y -= b.speed * dt;
-            if (b.y < -20) bubbles.splice(i, 1);
-            else drawBubble(b, t);
-        }
-
-        // fish
-        for (const f of fish) {
-            f.x += f.dir * f.speed * dt;
-            const margin = f.len * 1.6;
-            if (f.dir > 0 && f.x > W + margin) { f.x = -margin; f.y = rand(H * 0.08, H * 0.78); }
-            if (f.dir < 0 && f.x < -margin) { f.x = W + margin; f.y = rand(H * 0.08, H * 0.78); }
+        var fw = FISH[0][0].length;
+        for (i = 0; i < fish.length; i++) {
+            var f = fish[i];
+            f.x += f.dir * f.speed;
+            if (f.dir > 0 && f.x > COLS + 1) { f.x = -fw; f.y = Math.round(rand(ROWS * 0.10, ROWS * 0.60)); }
+            if (f.dir < 0 && f.x < -fw - 1) { f.x = COLS + 1; f.y = Math.round(rand(ROWS * 0.10, ROWS * 0.60)); }
             drawFish(f, t);
         }
 
-        // jellyfish
-        for (const j of jellies) {
-            j.x += Math.sin(t * 0.25 + j.wobble) * j.drift * dt;
-            j.y += j.rise * dt * (0.6 + 0.5 * Math.abs(Math.sin(t * j.pulse * 2 + j.phase)));
-            const m = j.r * 4;
-            if (j.y < -m) { j.y = H + j.r * 1.5; j.x = rand(W * 0.08, W * 0.92); }
-            if (j.x < -m) j.x = W + m;
-            if (j.x > W + m) j.x = -m;
+        // Jellyfish pulse upward, then sink back down. They stay inside the
+        // tank -- never wrapping, so none ever appears out of the floor.
+        for (i = 0; i < jellies.length; i++) {
+            var j = jellies[i];
+            if (j.up) {
+                if (tick % 5 === 0) j.y -= 1;
+                if (j.y <= j.top) j.up = false;
+            } else {
+                if (tick % 11 === 0) j.y += 1;
+                if (j.y >= j.bottom) j.up = true;
+            }
+            if (tick % 24 === 0) j.x += j.drift;
+            if (j.x < 1) j.drift = 1;
+            if (j.x > COLS - JELLY[0][0].length - 1) j.drift = -1;
             drawJelly(j, t);
         }
-
-        requestAnimationFrame(frame);
     }
 
     window.addEventListener('resize', resize);
