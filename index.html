@@ -87,12 +87,21 @@
         ]
     ];
 
-    var ROCK = [
-        "..###.",
-        ".#####",
-        "######",
-        ".####."
-    ];
+    // Rocks are generated per drop: ragged ellipses, a little smaller than a fish.
+    function makeRock() {
+        var w = irand(7, 10), h = irand(5, 7);
+        var rows = [], cx = w / 2, cy = h / 2;
+        for (var r = 0; r < h; r++) {
+            var dy = (r + 0.5 - cy) / cy;
+            var hw = cx * Math.sqrt(Math.max(0, 1 - dy * dy)) + rand(-0.7, 0.7);
+            var line = '';
+            for (var c = 0; c < w; c++) {
+                line += Math.abs(c + 0.5 - cx) <= hw ? '#' : '.';
+            }
+            rows.push(line);
+        }
+        return { rows: rows, w: w, h: h };
+    }
 
     var jellies = [], fish = [], plants = [], gravel = [], bubbles = [];
     var rocks = [], falling = [];
@@ -171,7 +180,7 @@
         for (i = 0; i < fCount; i++) {
             fish.push({
                 x: rand(0, COLS),
-                y: Math.round(rand(ROWS * 0.10, ROWS * 0.60)),
+                y: Math.round(rand(ROWS * 0.08, ROWS * 0.78)),
                 dir: Math.random() < 0.5 ? -1 : 1,
                 speed: rand(0.16, 0.38),
                 phase: rand(0, Math.PI * 2),
@@ -255,9 +264,8 @@
 
     function drawFish(f, t) {
         var frame = Math.floor(t / 5 + f.phase * 3) % 2;
-        var y = Math.round(f.y + Math.sin(t * f.bob + f.phase) * 2);
         var cells = [];
-        spriteCells(cells, FISH[frame], Math.round(f.x), y, f.dir < 0);
+        spriteCells(cells, FISH[frame], Math.round(f.x), f.drawY, f.dir < 0);
         stamp(cells);
     }
 
@@ -268,19 +276,29 @@
 
     // Where a rock dropped at column x comes to rest: on the substrate, or
     // stacked on top of whatever landed there before.
-    function restingRow(x) {
-        var h = ROCK.length, w = ROCK[0].length;
-        var row = ROWS - 1 - h + 1;
+    function restingRow(x, w, h) {
+        var row = ROWS - h;
         for (var i = 0; i < rocks.length; i++) {
             var r = rocks[i];
-            if (x + w > r.x && r.x + w > x) row = Math.min(row, r.y - h);
+            if (x + w > r.x && r.x + r.w > x) row = Math.min(row, r.y - h);
         }
         return row;
     }
 
+    // A landed rock is solid: fish turn around at it rather than swimming through.
+    function blockedBy(x, y) {
+        var fw = FISH[0][0].length, fh = FISH.length;
+        for (var i = 0; i < rocks.length; i++) {
+            var r = rocks[i];
+            if (x + fw > r.x && r.x + r.w > x && y + fh > r.y && r.y + r.h > y) return true;
+        }
+        return false;
+    }
+
     function dropRock() {
-        var x = irand(5, Math.max(6, COLS - 9));
-        falling.push({ x: x, y: -ROCK.length, vy: 0.7 });
+        var shape = makeRock();
+        var x = irand(4, Math.max(5, COLS - shape.w - 4));
+        falling.push({ x: x, y: -shape.h, vy: 0.7, rows: shape.rows, w: shape.w, h: shape.h });
 
         // The splash startles nearby fish, which bolt the other way.
         var mid = FISH[0][0].length / 2;
@@ -307,13 +325,13 @@
             r.vy = Math.min(5.5, r.vy + 0.5);
             r.y += r.vy;
 
-            if (tick % 2 === 0 && r.y > 0) bubbleAt(Math.round(r.x) + irand(0, 3), Math.round(r.y), irand(2, 4));
+            if (tick % 2 === 0 && r.y > 0) bubbleAt(Math.round(r.x) + irand(0, r.w), Math.round(r.y), irand(2, 4));
 
-            var rest = restingRow(Math.round(r.x));
+            var rest = restingRow(Math.round(r.x), r.w, r.h);
             if (r.y >= rest) {
                 falling.splice(i, 1);
-                rocks.push({ x: Math.round(r.x), y: rest });
-                if (rocks.length > 14) rocks.shift();
+                rocks.push({ x: Math.round(r.x), y: rest, w: r.w, h: r.h, rows: r.rows });
+                if (rocks.length > 14) dropOldestRock();
                 disturb = 26;
                 disturbX = Math.round(r.x);
                 var mid2 = FISH[0][0].length / 2;
@@ -323,7 +341,7 @@
                     if (Math.abs(d2) < 34) { ff.dir = d2 >= 0 ? 1 : -1; ff.dart = 20; }
                 }
                 for (var k = 0; k < 9; k++) {
-                    bubbleAt(Math.round(r.x) + irand(-2, 5), rest - irand(0, 3), irand(2, 4));
+                    bubbleAt(Math.round(r.x) + irand(-2, r.w + 2), rest - irand(0, 3), irand(2, 4));
                 }
             }
         }
@@ -331,9 +349,23 @@
         if (disturb > 0) disturb--;
     }
 
-    function drawRock(x, y) {
+    // Retire the oldest rock that nothing is resting on, so a pile never
+    // loses the rock holding it up.
+    function dropOldestRock() {
+        for (var i = 0; i < rocks.length; i++) {
+            var r = rocks[i], held = false;
+            for (var j = 0; j < rocks.length; j++) {
+                var o = rocks[j];
+                if (o !== r && o.x + o.w > r.x && r.x + r.w > o.x && o.y < r.y) { held = true; break; }
+            }
+            if (!held) { rocks.splice(i, 1); return; }
+        }
+        rocks.shift();
+    }
+
+    function drawRock(r, x, y) {
         var cells = [];
-        spriteCells(cells, ROCK, x, y, false);
+        spriteCells(cells, r.rows, x, y, false);
         stamp(cells);
     }
 
@@ -357,8 +389,8 @@
         for (i = 0; i < plants.length; i++) drawPlant(plants[i], t);
 
         updateRocks(t);
-        for (i = 0; i < rocks.length; i++) drawRock(rocks[i].x, rocks[i].y);
-        for (i = 0; i < falling.length; i++) drawRock(Math.round(falling[i].x), Math.round(falling[i].y));
+        for (i = 0; i < rocks.length; i++) drawRock(rocks[i], rocks[i].x, rocks[i].y);
+        for (i = 0; i < falling.length; i++) drawRock(falling[i], Math.round(falling[i].x), Math.round(falling[i].y));
 
         if (Math.random() < 0.008 && bubbles.length < 3) {
             bubbleAt(irand(2, COLS - 3), ROWS - 3, 3);
@@ -375,9 +407,22 @@
         for (i = 0; i < fish.length; i++) {
             var f = fish[i];
             if (f.dart > 0) f.dart--;
-            f.x += f.dir * f.speed * (f.dart > 0 ? 2.8 : 1);
-            if (f.dir > 0 && f.x > COLS + 1) { f.x = -fw; f.y = Math.round(rand(ROWS * 0.10, ROWS * 0.60)); }
-            if (f.dir < 0 && f.x < -fw - 1) { f.x = COLS + 1; f.y = Math.round(rand(ROWS * 0.10, ROWS * 0.60)); }
+            f.drawY = Math.round(f.y + Math.sin(t * f.bob + f.phase) * 2);
+
+            // Nudge clear if a rock came to rest on top of a fish.
+            if (blockedBy(f.x, f.drawY)) { f.y -= 1; f.drawY -= 1; }
+
+            var step = f.dir * f.speed * (f.dart > 0 ? 2.8 : 1);
+            if (blockedBy(f.x + step, f.drawY)) {
+                f.dir = -f.dir;
+                step = f.dir * f.speed * (f.dart > 0 ? 2.8 : 1);
+                if (blockedBy(f.x + step, f.drawY)) step = 0;
+            }
+            f.x += step;
+            f.y = Math.max(1, Math.min(ROWS - FISH.length - 3, f.y));
+            // The screen is the tank: fish turn at the glass instead of wrapping.
+            if (f.x < 1) { f.x = 1; f.dir = 1; }
+            if (f.x + fw > COLS - 1) { f.x = COLS - 1 - fw; f.dir = -1; }
             drawFish(f, t);
         }
 
