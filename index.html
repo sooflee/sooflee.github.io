@@ -448,6 +448,8 @@
                 phase: rand(0, Math.PI * 2),
                 bob: rand(sp.bob[0], sp.bob[1]),
                 dart: 0,
+                bolt: 0,
+                noBag: 0,
                 flee: 0,
                 fleeT: 0,
                 turnLock: 0
@@ -968,7 +970,8 @@
             // Lift clear immediately if a rock came to rest on top of a fish.
             for (var esc = 0; esc < 12 && blockedBy(f.x, f.drawY, fw, fh); esc++) { f.y -= 1; f.drawY -= 1; }
             // ... and duck away downward if the drifting bag catches one.
-            if (bagHit(f.x, f.drawY, fw, fh)) {
+            if (f.noBag > 0) f.noBag--;
+            if (f.noBag <= 0 && bagHit(f.x, f.drawY, fw, fh)) {
                 var out = (f.x + fw / 2 < bag.x + bag.w / 2) ? -1 : 1;
                 f.x += out;
                 f.dir = out;
@@ -1022,6 +1025,7 @@
 
             if (f.turnLock > 0) f.turnLock--;
             var rush = f.dart > 0 ? f.sp.rush : 1;
+            if (f.bolt > 0) { f.bolt--; rush *= 9; }   // just out of the bag, and gone
             if (f.sp.shoal && f.dart <= 0) {
                 // Ease off rather than crowd the fish in front.
                 for (var m = 0; m < fish.length; m++) {
@@ -1044,11 +1048,13 @@
                 step = f.dir * f.speed * rush;
                 if (blockedBy(f.x + step, f.drawY, fw, fh)) step = 0;
             } else if (blockedBy(f.x + step, f.drawY, fw, fh) || fishHit(f, f.x + step, f.drawY) ||
-                       critterHit(f.x + step, f.drawY, fw, fh) || bagHit(f.x + step, f.drawY, fw, fh)) {
+                       critterHit(f.x + step, f.drawY, fw, fh) ||
+                       (f.noBag <= 0 && bagHit(f.x + step, f.drawY, fw, fh))) {
                 if (f.turnLock <= 0) { f.dir = -f.dir; f.turnLock = 12; }
                 step = f.dir * f.speed * rush;
                 if (blockedBy(f.x + step, f.drawY, fw, fh) || fishHit(f, f.x + step, f.drawY) ||
-                    critterHit(f.x + step, f.drawY, fw, fh) || bagHit(f.x + step, f.drawY, fw, fh)) step = 0;
+                    critterHit(f.x + step, f.drawY, fw, fh) ||
+                    (f.noBag <= 0 && bagHit(f.x + step, f.drawY, fw, fh))) step = 0;
             }
             f.x += step;
 
@@ -1059,7 +1065,7 @@
                 var ny2 = Math.max(WATER + 3, Math.min(maxDrawY - 2, f.y + seek));
                 var nDraw2 = Math.round(ny2 + Math.sin(t * f.bob + f.phase) * (f.sp.bobAmp || 2));
                 if (!blockedBy(f.x, nDraw2, fw, fh) && !critterHit(f.x, nDraw2, fw, fh) &&
-                    !bagHit(f.x, nDraw2, fw, fh) && !fishHit(f, f.x, nDraw2)) f.y = ny2;
+                    (f.noBag > 0 || !bagHit(f.x, nDraw2, fw, fh)) && !fishHit(f, f.x, nDraw2)) f.y = ny2;
             }
 
             // Ease apart from a crowding neighbour, one notch at a time.
@@ -1068,7 +1074,7 @@
                 var sy2 = Math.max(WATER + 3, Math.min(maxDrawY - 2, f.y + lift));
                 var sDraw = Math.round(sy2 + Math.sin(t * f.bob + f.phase) * (f.sp.bobAmp || 2));
                 if (!blockedBy(f.x, sDraw, fw, fh) && !critterHit(f.x, sDraw, fw, fh) &&
-                    !bagHit(f.x, sDraw, fw, fh) &&
+                    (f.noBag > 0 || !bagHit(f.x, sDraw, fw, fh)) &&
                     (tangled || !fishHit(f, f.x, sDraw))) f.y = sy2;
             }
 
@@ -1133,7 +1139,9 @@
                     newcomer.dir = bag.tipDir;
                     newcomer.flee = 1;          // slips down and away from the bag
                     newcomer.fleeT = 30;
-                    newcomer.dart = 34;         // and bolts once it is clear
+                    newcomer.dart = 34;
+                    newcomer.bolt = Math.round(3000 / STEP);   // three seconds of flat-out
+                    newcomer.noBag = 60;        // it swims out through the open mouth
                     for (var sc = 0; sc < fish.length; sc++) {
                         if (fish[sc] === newcomer) continue;
                         startle(fish[sc], bag.x + bag.w / 2, WATER + 6, 26);
@@ -1198,6 +1206,11 @@
         }
     }
 
+    function cellNoise(cx, cy) {
+        var n = Math.sin(cx * 12.9898 + cy * 78.233) * 43758.5453;
+        return n - Math.floor(n);
+    }
+
     function drawBag(t) {
         var x = Math.round(bag.x);
         var y = bagTop();                            // waterline crosses it
@@ -1223,17 +1236,24 @@
 
         var cells = [];
         spriteCells(cells, BAG, x, y, false);
-        stamp(lean(cells, y), STONE);
+        lean(cells, y);
 
-        // the water it is half filled with, its level just above the tank's
-        var lvl = y + 11;
-        var row = BAG[lvl - y];
-        var left = row.indexOf('#'), right = row.lastIndexOf('#');
-        var water = [];
-        for (var c = left + 1; c < right; c++) water.push(x + c, lvl);
-        lean(water, y);
-        ctx.fillStyle = INK;
-        for (var q = 0; q < water.length; q += 2) px(water[q], water[q + 1]);
+        if (bag.state === 'lift') {
+            // Breaking up as it comes out of the water.
+            var prog = Math.min(1, bag.lift / 26);
+            var kept = [];
+            for (var i = 0; i < cells.length; i += 2) {
+                var cx = cells[i], cy = cells[i + 1];
+                if (cellNoise(cx, cy) < prog * 0.8) continue;          // pieces wink out
+                var fly = prog * 7;
+                kept.push(cx + Math.round((cellNoise(cx + 3, cy) * 2 - 1) * fly),
+                          cy + Math.round((cellNoise(cx, cy + 5) * 2 - 1) * fly));
+            }
+            cells = kept;
+        }
+
+        stamp(cells, STONE);
+
     }
 
     // Painted last: rocks settle into the gravel rather than floating on it,
