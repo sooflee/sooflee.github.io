@@ -185,7 +185,10 @@
                 speed: rand(0.16, 0.38),
                 phase: rand(0, Math.PI * 2),
                 bob: rand(0.05, 0.12),
-                dart: 0
+                dart: 0,
+                flee: 0,
+                fleeT: 0,
+                turnLock: 0
             });
         }
 
@@ -263,7 +266,7 @@
     }
 
     function drawFish(f, t) {
-        var frame = Math.floor(t / 5 + f.phase * 3) % 2;
+        var frame = Math.floor(t / (f.dart > 0 ? 2 : 5) + f.phase * 3) % 2;
         var cells = [];
         spriteCells(cells, FISH[frame], Math.round(f.x), f.drawY, f.dir < 0);
         stamp(cells);
@@ -295,18 +298,27 @@
         return false;
     }
 
+    // A fish bolts away from (rx, ry): horizontally first, with a vertical
+    // kick so the whole tank visibly scatters.
+    function startle(f, rx, ry, power) {
+        var dx = (f.x + FISH[0][0].length / 2) - rx;
+        var dy = (f.drawY + FISH.length / 2) - ry;
+        // Directly underneath, keep going rather than flip-flopping each tick.
+        if (Math.abs(dx) > 3) f.dir = dx >= 0 ? 1 : -1;
+        if (Math.abs(dy) > 2) f.flee = dy >= 0 ? 1 : -1;
+        f.dart = Math.max(f.dart, power);
+        f.fleeT = Math.max(f.fleeT, power);
+    }
+
     function dropRock() {
         var shape = makeRock();
         var x = irand(4, Math.max(5, COLS - shape.w - 4));
         falling.push({ x: x, y: -shape.h, vy: 0.7, rows: shape.rows, w: shape.w, h: shape.h });
 
-        // The splash startles nearby fish, which bolt the other way.
-        var mid = FISH[0][0].length / 2;
+        // The splash startles the whole tank; fish near it bolt hardest.
         for (var i = 0; i < fish.length; i++) {
             var f = fish[i];
-            var dx = (f.x + mid) - x;
-            f.dir = dx >= 0 ? 1 : -1;
-            f.dart = Math.abs(dx) < 48 ? 26 : 12;
+            startle(f, x + shape.w / 2, 0, Math.abs((f.x + 6) - x) < 48 ? 26 : 14);
         }
 
         disturb = 18;
@@ -327,6 +339,14 @@
 
             if (tick % 2 === 0 && r.y > 0) bubbleAt(Math.round(r.x) + irand(0, r.w), Math.round(r.y), irand(2, 4));
 
+            // Anything the rock plunges past scatters out of its way.
+            var rcx = r.x + r.w / 2, rcy = r.y + r.h / 2;
+            for (var q = 0; q < fish.length; q++) {
+                var ff2 = fish[q];
+                var ddx = (ff2.x + 6) - rcx, ddy = (ff2.drawY + 3) - rcy;
+                if (Math.abs(ddx) < 34 && Math.abs(ddy) < 26) startle(ff2, rcx, rcy, 24);
+            }
+
             var rest = restingRow(Math.round(r.x), r.w, r.h);
             if (r.y >= rest) {
                 falling.splice(i, 1);
@@ -334,11 +354,9 @@
                 if (rocks.length > 14) dropOldestRock();
                 disturb = 26;
                 disturbX = Math.round(r.x);
-                var mid2 = FISH[0][0].length / 2;
                 for (var m = 0; m < fish.length; m++) {
                     var ff = fish[m];
-                    var d2 = (ff.x + mid2) - r.x;
-                    if (Math.abs(d2) < 34) { ff.dir = d2 >= 0 ? 1 : -1; ff.dart = 20; }
+                    if (Math.abs((ff.x + 6) - r.x) < 40) startle(ff, r.x + r.w / 2, rest, 24);
                 }
                 for (var k = 0; k < 9; k++) {
                     bubbleAt(Math.round(r.x) + irand(-2, r.w + 2), rest - irand(0, 3), irand(2, 4));
@@ -409,16 +427,26 @@
             if (f.dart > 0) f.dart--;
             f.drawY = Math.round(f.y + Math.sin(t * f.bob + f.phase) * 2);
 
-            // Nudge clear if a rock came to rest on top of a fish.
-            if (blockedBy(f.x, f.drawY)) { f.y -= 1; f.drawY -= 1; }
+            // Lift clear immediately if a rock came to rest on top of a fish.
+            for (var esc = 0; esc < 12 && blockedBy(f.x, f.drawY); esc++) { f.y -= 1; f.drawY -= 1; }
 
-            var step = f.dir * f.speed * (f.dart > 0 ? 2.8 : 1);
+            if (f.turnLock > 0) f.turnLock--;
+            var rush = f.dart > 0 ? 4.2 : 1;
+            var step = f.dir * f.speed * rush;
             if (blockedBy(f.x + step, f.drawY)) {
-                f.dir = -f.dir;
-                step = f.dir * f.speed * (f.dart > 0 ? 2.8 : 1);
+                if (f.turnLock <= 0) { f.dir = -f.dir; f.turnLock = 12; }
+                step = f.dir * f.speed * rush;
                 if (blockedBy(f.x + step, f.drawY)) step = 0;
             }
             f.x += step;
+
+            if (f.fleeT > 0) {
+                f.fleeT--;
+                var ny = f.y + f.flee * 0.7;
+                var nDraw = Math.round(ny + Math.sin(t * f.bob + f.phase) * 2);
+                if (blockedBy(f.x, nDraw)) f.fleeT = 0;
+                else f.y = ny;
+            }
             f.y = Math.max(1, Math.min(ROWS - FISH.length - 3, f.y));
             // The screen is the tank: fish turn at the glass instead of wrapping.
             if (f.x < 1) { f.x = 1; f.dir = 1; }
