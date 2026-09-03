@@ -44,48 +44,168 @@
     function irand(a, b) { return Math.floor(rand(a, b + 1)); }
 
     // ---------- sprites (# = black, . = empty) ----------
-    var JELLY = [
-        [
-            "....#####....",
-            "..#########..",
-            ".###########.",
-            "#############",
-            "#############",
-            "#############",
-            "#.##.###.##.#"
-        ],
-        [
-            ".....###.....",
-            "...#######...",
-            "..#########..",
-            ".###########.",
-            "#############",
-            "#############",
-            "##.##.#.##.##"
-        ]
-    ];
-    var JELLY_ANCHORS = [2, 5, 7, 10];
+    // Each species is a pixel silhouette plus the water it prefers.
+    var SPECIES = {
+        tetra: {
+            w: 12, h: 7, band: [0.08, 0.70], speed: [0.16, 0.38],
+            bob: [0.05, 0.12], flap: 5, rush: 4.2,
+            frames: [[
+                "......###...",
+                "#...########",
+                "##.#########",
+                "#########.##",
+                "##.#########",
+                "#...########",
+                "......###..."
+            ], [
+                "......###...",
+                "....########",
+                "#..#########",
+                "#########.##",
+                "#..#########",
+                "....########",
+                "......###..."
+            ]]
+        },
+        hatchet: {
+            w: 11, h: 8, band: [0.04, 0.18], speed: [0.10, 0.24],
+            bob: [0.04, 0.09], flap: 4, rush: 3.4,
+            frames: [[
+                ".##########",
+                "#..########",
+                "##.########",
+                "#..######.#",
+                ".##########",
+                ".##########",
+                "..########.",
+                "...######.."
+            ], [
+                ".##########",
+                "...########",
+                "#..########",
+                "##.######.#",
+                "#.#########",
+                ".##########",
+                "..########.",
+                "...######.."
+            ]]
+        },
+        angel: {
+            w: 10, h: 14, band: [0.24, 0.56], speed: [0.08, 0.18],
+            bob: [0.03, 0.07], flap: 6, rush: 3.0,
+            frames: [[
+                "#.........",
+                ".#........",
+                ".##.......",
+                "..###.....",
+                "..#####...",
+                ".########.",
+                "##########",
+                "#######.##",
+                "##########",
+                ".########.",
+                "..#####...",
+                "..###.....",
+                ".##.......",
+                "#........."
+            ], [
+                ".#........",
+                ".##.......",
+                "..##......",
+                "..####....",
+                ".######...",
+                ".#########",
+                "##########",
+                "#######.##",
+                "##########",
+                ".#########",
+                ".######...",
+                "..####....",
+                "..##......",
+                ".#........"
+            ]]
+        },
+        seahorse: {
+            w: 6, h: 12, band: [0.58, 0.82], speed: [0.03, 0.09],
+            bob: [0.05, 0.10], flap: 7, rush: 2.2,
+            frames: [[
+                ".###..",
+                "####..",
+                "##.###",
+                ".####.",
+                "..###.",
+                ".####.",
+                "..###.",
+                "..###.",
+                ".###..",
+                ".##...",
+                ".##...",
+                ".####."
+            ], [
+                ".###..",
+                "####..",
+                "##.###",
+                ".####.",
+                "..###.",
+                "..####",
+                "..###.",
+                ".###..",
+                ".###..",
+                "..##..",
+                "..##..",
+                ".####."
+            ]]
+        }
+    };
 
-    var FISH = [
-        [
-            "......###...",
-            "#...########",
-            "##.#########",
-            "#########.##",
-            "##.#########",
-            "#...########",
-            "......###..."
-        ],
-        [
-            "......###...",
-            "....########",
-            "#..#########",
-            "#########.##",
-            "#..#########",
-            "....########",
-            "......###..."
-        ]
-    ];
+    // Bottom dwellers: they crawl on the substrate rather than swim.
+    var CRITTERS = {
+        snail: {
+            w: 9, h: 6, speed: [0.015, 0.035], flap: 20, rush: 1,
+            frames: [[
+                "..###....",
+                ".#####.#.",
+                "##.###.#.",
+                "###.#####",
+                "#########",
+                ".########"
+            ], [
+                "..###....",
+                ".#####.#.",
+                "##.###..#",
+                "###.#####",
+                "#########",
+                "..#######"
+            ]],
+            // Pulled into the shell: stalks gone, foot tucked up.
+            hidden: [
+                "..###....",
+                ".#####...",
+                "##.###...",
+                "###.####.",
+                "#######..",
+                ".######.."
+            ]
+        },
+        shrimp: {
+            w: 10, h: 6, speed: [0.05, 0.13], flap: 4, rush: 6,
+            frames: [[
+                "..#####...",
+                ".#######..",
+                "#.#######.",
+                "##.#####.#",
+                ".#.#####..",
+                "...#.#.#.."
+            ], [
+                "..#####...",
+                "#.######..",
+                "##.######.",
+                "#.#######.",
+                ".#.#####.#",
+                "..#.#.#..."
+            ]]
+        }
+    };
 
     // Rocks are generated per drop: ragged ellipses, a little smaller than a fish.
     function makeRock() {
@@ -103,7 +223,7 @@
         return { rows: rows, w: w, h: h };
     }
 
-    var jellies = [], fish = [], plants = [], gravel = [], bubbles = [];
+    var fish = [], critters = [], plants = [], gravel = [], bubbles = [];
     var rocks = [], falling = [];
     var nextRock = 0, disturb = 0, disturbX = 0;
 
@@ -155,39 +275,41 @@
             }
         }
 
-        var domeH = JELLY[0].length;
-        jellies = [];
-        var jCount = small ? 1 : 2;
-        for (i = 0; i < jCount; i++) {
-            var tail = small ? 6 : 8;
-            var top = 1;
-            var bottom = Math.max(top + 4, ROWS - domeH - tail - 6);
-            jellies.push({
-                x: Math.max(1, Math.min(COLS - JELLY[0][0].length - 1,
-                    Math.round((i + rand(0.25, 0.75)) * (COLS / jCount)) - 6)),
-                y: irand(top + 2, bottom),
-                top: top,
-                bottom: bottom,
-                up: Math.random() < 0.5,
-                tail: tail,
-                phase: rand(0, Math.PI * 2),
-                drift: Math.random() < 0.5 ? -1 : 1
-            });
-        }
-
         fish = [];
-        var fCount = 3;
-        for (i = 0; i < fCount; i++) {
+        var roster = small
+            ? ['tetra', 'angel', 'seahorse']
+            : ['tetra', 'tetra', 'hatchet', 'angel', 'seahorse'];
+        for (i = 0; i < roster.length; i++) {
+            var sp = SPECIES[roster[i]];
             fish.push({
-                x: rand(0, COLS),
-                y: Math.round(rand(ROWS * 0.08, ROWS * 0.78)),
+                sp: sp,
+                x: rand(2, Math.max(3, COLS - sp.w - 2)),
+                y: Math.round(rand(ROWS * sp.band[0], ROWS * sp.band[1])),
                 dir: Math.random() < 0.5 ? -1 : 1,
-                speed: rand(0.16, 0.38),
+                speed: rand(sp.speed[0], sp.speed[1]),
                 phase: rand(0, Math.PI * 2),
-                bob: rand(0.05, 0.12),
+                bob: rand(sp.bob[0], sp.bob[1]),
+                drawY: 0,
                 dart: 0,
                 flee: 0,
                 fleeT: 0,
+                turnLock: 0
+            });
+        }
+
+        critters = [];
+        var kinds = ['snail', 'shrimp'];
+        for (i = 0; i < kinds.length; i++) {
+            var cs = CRITTERS[kinds[i]];
+            critters.push({
+                kind: kinds[i],
+                sp: cs,
+                x: rand(4, Math.max(5, COLS - cs.w - 4)),
+                dir: Math.random() < 0.5 ? -1 : 1,
+                speed: rand(cs.speed[0], cs.speed[1]),
+                phase: rand(0, Math.PI * 2),
+                hideT: 0,
+                dartT: 0,
                 turnLock: 0
             });
         }
@@ -245,30 +367,56 @@
         stamp(cells);
     }
 
-    function drawJelly(j, t) {
-        var f = Math.floor(t / 9 + j.phase) % 2;
-        var rows = JELLY[f];
-        var x = Math.round(j.x);
-        var y = Math.round(j.y);
-        var cells = [];
-        spriteCells(cells, rows, x, y, false);
+    function updateCritters(t) {
+        for (var i = 0; i < critters.length; i++) {
+            var c = critters[i];
+            var y = ROWS - 2 - c.sp.h;
+            if (c.turnLock > 0) c.turnLock--;
+            if (c.dartT > 0) c.dartT--;
 
-        var hemY = y + rows.length;
-        for (var a = 0; a < JELLY_ANCHORS.length; a++) {
-            var ax = x + JELLY_ANCHORS[a];
-            var len = j.tail - (a % 2) - (f === 1 ? 1 : 0);
-            for (var k = 0; k < len; k++) {
-                var off = Math.round(Math.sin(t * 0.075 + j.phase + a * 1.3 + k * 0.5) * 1.4);
-                cells.push(ax + off, hemY + k);
+            // Shoved out from under a rock that came to rest on top of it.
+            if (blockedBy(c.x, y, c.sp.w, c.sp.h)) {
+                var out = 0;
+                for (var k = 0; k < rocks.length; k++) {
+                    var rk = rocks[k];
+                    if (c.x + c.sp.w > rk.x && rk.x + rk.w > c.x && y + c.sp.h > rk.y && rk.y + rk.h > y) {
+                        out = ((c.x + c.sp.w) - rk.x) <= ((rk.x + rk.w) - c.x) ? -1 : 1;
+                        break;
+                    }
+                }
+                c.x = Math.max(1, Math.min(COLS - 1 - c.sp.w, c.x + out));
+                c.dir = out || c.dir;
+                c.hideT = Math.max(c.hideT, 6);
             }
+
+            if (c.hideT > 0) {
+                c.hideT--;
+            } else {
+                var rush = c.dartT > 0 ? c.sp.rush : 1;
+                var step = c.dir * c.speed * rush;
+                if (blockedBy(c.x + step, y, c.sp.w, c.sp.h)) {
+                    if (c.turnLock <= 0) { c.dir = -c.dir; c.turnLock = 12; }
+                    step = c.dir * c.speed * rush;
+                    if (blockedBy(c.x + step, y, c.sp.w, c.sp.h)) step = 0;
+                }
+                c.x += step;
+                if (c.x < 1) { c.x = 1; c.dir = 1; }
+                if (c.x + c.sp.w > COLS - 1) { c.x = COLS - 1 - c.sp.w; c.dir = -1; }
+            }
+
+            var rows;
+            if (c.hideT > 0 && c.sp.hidden) rows = c.sp.hidden;
+            else rows = c.sp.frames[Math.floor(t / (c.dartT > 0 ? 2 : c.sp.flap) + c.phase * 3) % 2];
+            var cells = [];
+            spriteCells(cells, rows, Math.round(c.x), y, c.dir < 0);
+            stamp(cells);
         }
-        stamp(cells);
     }
 
     function drawFish(f, t) {
-        var frame = Math.floor(t / (f.dart > 0 ? 2 : 5) + f.phase * 3) % 2;
+        var frame = Math.floor(t / (f.dart > 0 ? 2 : f.sp.flap) + f.phase * 3) % 2;
         var cells = [];
-        spriteCells(cells, FISH[frame], Math.round(f.x), f.drawY, f.dir < 0);
+        spriteCells(cells, f.sp.frames[frame], Math.round(f.x), f.drawY, f.dir < 0);
         stamp(cells);
     }
 
@@ -289,8 +437,7 @@
     }
 
     // A landed rock is solid: fish turn around at it rather than swimming through.
-    function blockedBy(x, y) {
-        var fw = FISH[0][0].length, fh = FISH.length;
+    function blockedBy(x, y, fw, fh) {
         for (var i = 0; i < rocks.length; i++) {
             var r = rocks[i];
             if (x + fw > r.x && r.x + r.w > x && y + fh > r.y && r.y + r.h > y) return true;
@@ -301,13 +448,24 @@
     // A fish bolts away from (rx, ry): horizontally first, with a vertical
     // kick so the whole tank visibly scatters.
     function startle(f, rx, ry, power) {
-        var dx = (f.x + FISH[0][0].length / 2) - rx;
-        var dy = (f.drawY + FISH.length / 2) - ry;
+        var dx = (f.x + f.sp.w / 2) - rx;
+        var dy = (f.drawY + f.sp.h / 2) - ry;
         // Directly underneath, keep going rather than flip-flopping each tick.
         if (Math.abs(dx) > 3) f.dir = dx >= 0 ? 1 : -1;
         if (Math.abs(dy) > 2) f.flee = dy >= 0 ? 1 : -1;
         f.dart = Math.max(f.dart, power);
         f.fleeT = Math.max(f.fleeT, power);
+    }
+
+    // The snail pulls into its shell; the shrimp flicks away backwards.
+    function spook(c, rx, power) {
+        if (c.kind === 'snail') {
+            c.hideT = Math.max(c.hideT, power * 2);
+        } else {
+            var dx = (c.x + c.sp.w / 2) - rx;
+            if (Math.abs(dx) > 3) c.dir = dx >= 0 ? 1 : -1;
+            c.dartT = Math.max(c.dartT, power);
+        }
     }
 
     function dropRock() {
@@ -318,8 +476,9 @@
         // The splash startles the whole tank; fish near it bolt hardest.
         for (var i = 0; i < fish.length; i++) {
             var f = fish[i];
-            startle(f, x + shape.w / 2, 0, Math.abs((f.x + 6) - x) < 60 ? 26 : 14);
+            startle(f, x + shape.w / 2, 0, Math.abs((f.x + f.sp.w / 2) - x) < 60 ? 26 : 14);
         }
+        for (var cc = 0; cc < critters.length; cc++) spook(critters[cc], x + shape.w / 2, 14);
 
         disturb = 18;
         disturbX = x;
@@ -343,8 +502,14 @@
             var rcx = r.x + r.w / 2, rcy = r.y + r.h / 2;
             for (var q = 0; q < fish.length; q++) {
                 var ff2 = fish[q];
-                var ddx = (ff2.x + 6) - rcx, ddy = (ff2.drawY + 3) - rcy;
+                var ddx = (ff2.x + ff2.sp.w / 2) - rcx, ddy = (ff2.drawY + ff2.sp.h / 2) - rcy;
                 if (Math.abs(ddx) < 42 && Math.abs(ddy) < 32) startle(ff2, rcx, rcy, 24);
+            }
+            if (r.y > ROWS * 0.5) {
+                for (var cq = 0; cq < critters.length; cq++) {
+                    var cr = critters[cq];
+                    if (Math.abs((cr.x + cr.sp.w / 2) - rcx) < 40) spook(cr, rcx, 20);
+                }
             }
 
             var rest = restingRow(Math.round(r.x), r.w, r.h);
@@ -356,8 +521,9 @@
                 disturbX = Math.round(r.x);
                 for (var m = 0; m < fish.length; m++) {
                     var ff = fish[m];
-                    if (Math.abs((ff.x + 6) - r.x) < 50) startle(ff, r.x + r.w / 2, rest, 24);
+                    if (Math.abs((ff.x + ff.sp.w / 2) - r.x) < 50) startle(ff, r.x + r.w / 2, rest, 24);
                 }
+                for (var cm = 0; cm < critters.length; cm++) spook(critters[cm], r.x + r.w / 2, 22);
                 for (var k = 0; k < 9; k++) {
                     bubbleAt(Math.round(r.x) + irand(-2, r.w + 2), rest - irand(0, 3), irand(2, 4));
                 }
@@ -410,6 +576,8 @@
         for (i = 0; i < rocks.length; i++) drawRock(rocks[i], rocks[i].x, rocks[i].y);
         for (i = 0; i < falling.length; i++) drawRock(falling[i], Math.round(falling[i].x), Math.round(falling[i].y));
 
+        updateCritters(t);
+
         if (Math.random() < 0.008 && bubbles.length < 3) {
             bubbleAt(irand(2, COLS - 3), ROWS - 3, 3);
         }
@@ -421,55 +589,41 @@
             else px(b.x + (Math.sin(t * 0.4 + b.phase) > 0 ? 0 : 1), b.y);
         }
 
-        var fw = FISH[0][0].length;
         for (i = 0; i < fish.length; i++) {
             var f = fish[i];
+            var fw = f.sp.w, fh = f.sp.h;
             if (f.dart > 0) f.dart--;
-            f.drawY = Math.round(f.y + Math.sin(t * f.bob + f.phase) * 2);
+            // The substrate is the floor: never let a fish dip into it.
+            var maxDrawY = ROWS - 2 - fh;
+            f.drawY = Math.min(maxDrawY, Math.round(f.y + Math.sin(t * f.bob + f.phase) * 2));
 
             // Lift clear immediately if a rock came to rest on top of a fish.
-            for (var esc = 0; esc < 12 && blockedBy(f.x, f.drawY); esc++) { f.y -= 1; f.drawY -= 1; }
+            for (var esc = 0; esc < 12 && blockedBy(f.x, f.drawY, fw, fh); esc++) { f.y -= 1; f.drawY -= 1; }
 
             if (f.turnLock > 0) f.turnLock--;
-            var rush = f.dart > 0 ? 4.2 : 1;
+            var rush = f.dart > 0 ? f.sp.rush : 1;
             var step = f.dir * f.speed * rush;
-            if (blockedBy(f.x + step, f.drawY)) {
+            if (blockedBy(f.x + step, f.drawY, fw, fh)) {
                 if (f.turnLock <= 0) { f.dir = -f.dir; f.turnLock = 12; }
                 step = f.dir * f.speed * rush;
-                if (blockedBy(f.x + step, f.drawY)) step = 0;
+                if (blockedBy(f.x + step, f.drawY, fw, fh)) step = 0;
             }
             f.x += step;
 
             if (f.fleeT > 0) {
                 f.fleeT--;
-                var ny = f.y + f.flee * 0.7;
+                var ny = Math.min(f.y + f.flee * 0.7, maxDrawY - 2);
                 var nDraw = Math.round(ny + Math.sin(t * f.bob + f.phase) * 2);
-                if (blockedBy(f.x, nDraw)) f.fleeT = 0;
+                if (blockedBy(f.x, nDraw, fw, fh)) f.fleeT = 0;
                 else f.y = ny;
             }
-            f.y = Math.max(1, Math.min(ROWS - FISH.length - 3, f.y));
+            f.y = Math.max(1, Math.min(maxDrawY - 2, f.y));
             // The screen is the tank: fish turn at the glass instead of wrapping.
             if (f.x < 1) { f.x = 1; f.dir = 1; }
             if (f.x + fw > COLS - 1) { f.x = COLS - 1 - fw; f.dir = -1; }
             drawFish(f, t);
         }
 
-        // Jellyfish pulse upward, then sink back down. They stay inside the
-        // tank -- never wrapping, so none ever appears out of the floor.
-        for (i = 0; i < jellies.length; i++) {
-            var j = jellies[i];
-            if (j.up) {
-                if (tick % 8 === 0) j.y -= 1;
-                if (j.y <= j.top) j.up = false;
-            } else {
-                if (tick % 18 === 0) j.y += 1;
-                if (j.y >= j.bottom) j.up = true;
-            }
-            if (tick % 40 === 0) j.x += j.drift;
-            if (j.x < 1) j.drift = 1;
-            if (j.x > COLS - JELLY[0][0].length - 1) j.drift = -1;
-            drawJelly(j, t);
-        }
     }
 
     window.addEventListener('resize', resize);
