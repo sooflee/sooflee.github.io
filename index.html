@@ -117,7 +117,7 @@
         canvas.width = w;
         canvas.height = h;
 
-        var targetCols = canvas.clientWidth < 640 ? 82 : 150;
+        var targetCols = canvas.clientWidth < 640 ? 100 : 185;
         CELL = Math.max(3, Math.round(w / targetCols));
         COLS = Math.floor(w / CELL);
         ROWS = Math.floor(h / CELL);
@@ -127,7 +127,7 @@
     }
 
     function build() {
-        var small = COLS < 100;
+        var small = COLS < 120;
         var floor = ROWS - 2;
         var i;
 
@@ -146,7 +146,7 @@
             for (var b = 0; b < blades; b++) {
                 plants.push({
                     x: px0 + b * irand(4, 7),
-                    h: irand(Math.round(ROWS * 0.12), Math.round(ROWS * 0.22)),
+                    h: irand(Math.round(ROWS * 0.10), Math.round(ROWS * 0.19)),
                     phase: rand(0, Math.PI * 2),
                     speed: rand(0.03, 0.055),
                     waves: rand(2.4, 4.0),
@@ -235,7 +235,7 @@
             var u = k / p.h;
             var root = Math.min(1, k / 3);
             var shake = 0;
-            if (disturb > 0 && Math.abs(p.x - disturbX) < 26) {
+            if (disturb > 0 && Math.abs(p.x - disturbX) < 32) {
                 shake = Math.sin(t * 0.8 + p.phase) * (disturb / 26) * 2.2 * u;
             }
             var off = Math.round(Math.sin(p.phase + u * p.waves + t * p.speed) * p.bend * root + shake);
@@ -318,7 +318,7 @@
         // The splash startles the whole tank; fish near it bolt hardest.
         for (var i = 0; i < fish.length; i++) {
             var f = fish[i];
-            startle(f, x + shape.w / 2, 0, Math.abs((f.x + 6) - x) < 48 ? 26 : 14);
+            startle(f, x + shape.w / 2, 0, Math.abs((f.x + 6) - x) < 60 ? 26 : 14);
         }
 
         disturb = 18;
@@ -344,7 +344,7 @@
             for (var q = 0; q < fish.length; q++) {
                 var ff2 = fish[q];
                 var ddx = (ff2.x + 6) - rcx, ddy = (ff2.drawY + 3) - rcy;
-                if (Math.abs(ddx) < 34 && Math.abs(ddy) < 26) startle(ff2, rcx, rcy, 24);
+                if (Math.abs(ddx) < 42 && Math.abs(ddy) < 32) startle(ff2, rcx, rcy, 24);
             }
 
             var rest = restingRow(Math.round(r.x), r.w, r.h);
@@ -356,7 +356,7 @@
                 disturbX = Math.round(r.x);
                 for (var m = 0; m < fish.length; m++) {
                     var ff = fish[m];
-                    if (Math.abs((ff.x + 6) - r.x) < 40) startle(ff, r.x + r.w / 2, rest, 24);
+                    if (Math.abs((ff.x + 6) - r.x) < 50) startle(ff, r.x + r.w / 2, rest, 24);
                 }
                 for (var k = 0; k < 9; k++) {
                     bubbleAt(Math.round(r.x) + irand(-2, r.w + 2), rest - irand(0, 3), irand(2, 4));
