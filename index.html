@@ -337,11 +337,8 @@
             var blades = 2;
             for (var b = 0; b < blades; b++) {
                 plants.push({
-                    kind: (b === 0 && Math.random() < 0.4) ? 'broad' : 'blade',
-                    leaves: irand(4, 6),
                     x: px0 + b * irand(4, 7),
                     h: irand(Math.round(ROWS * 0.09), Math.round(ROWS * 0.17)),
-                    stem: irand(3, 6),
                     phase: rand(0, Math.PI * 2),
                     speed: rand(0.03, 0.055),
                     waves: rand(2.4, 4.0),
@@ -458,41 +455,7 @@
         }
     }
 
-    // A rosette of rounded leaves, as a change from the strappy blades.
-    var LEAF = [
-        "..###..",
-        ".#####.",
-        "..###.."
-    ];
-
-    function drawBroad(p, t) {
-        var baseY = FLOOR - 1;
-        var sway = Math.sin(t * p.speed + p.phase);
-        for (var k = 0; k < p.stem; k++) {
-            px(p.x, baseY - k);
-            px(p.x + 1, baseY - k);
-        }
-        for (var i = 0; i < p.leaves; i++) {
-            var side = (i % 2) ? 1 : -1;
-            var lift = 2 + i * 2;
-            var reach = 4 + (i % 3);
-            var drift = Math.round(sway * (0.6 + i * 0.4));
-            var lx = p.x + side * reach + drift;
-            var ly = baseY - lift;
-            // stalk out to the leaf, so it is not a blob floating in the water
-            for (var q = 0; q <= reach; q++) {
-                px(p.x + (side > 0 ? 1 : 0) + side * q, baseY - Math.round(lift * q / reach));
-            }
-            for (var r = 0; r < LEAF.length; r++) {
-                for (var c = 0; c < LEAF[0].length; c++) {
-                    if (LEAF[r].charAt(c) === '#') px(lx + c - 3, ly - (LEAF.length - 1 - r));
-                }
-            }
-        }
-    }
-
     function drawPlant(p, t) {
-        if (p.kind === 'broad') { drawBroad(p, t); return; }
         var baseY = FLOOR - 1;
         var cells = [];
         for (var k = 0; k < p.h; k++) {
