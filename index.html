@@ -298,6 +298,34 @@
     var nextRock = 0, disturb = 0, disturbX = 0;
     var splash = null;   // ripple spreading from where a rock broke the surface
 
+    // A new fish arrives the way it does from a shop: floating in a tied bag,
+    // acclimatising at the surface before it is let out.
+    var BAG = [
+        "........##..##............",
+        ".......####.####..........",
+        "........########..........",
+        ".........######...........",
+        ".........#....#...........",
+        "........#......#..........",
+        ".......#........#.........",
+        "......#..........#........",
+        ".....#............#.......",
+        "....#..............#......",
+        "...#................#.....",
+        "..#..................#....",
+        "..#..................#....",
+        ".#....................#...",
+        ".#....................#...",
+        ".#....................#...",
+        ".#....................#...",
+        "..#..................#....",
+        "..#..................#....",
+        "...#................#.....",
+        "....################......"
+    ];
+    var bag = null;
+    var BAG_MS = 45000;
+
     var FIRST_ROCK_MS = 8000;
     var ROCK_GAP_MS = [30000, 120000];
 
@@ -400,6 +428,23 @@
         }
 
         rocks = [];
+        bag = null;
+        for (i = 0; i < fish.length; i++) {
+            if (fish[i].sp !== SPECIES.discus) continue;
+            var side = Math.random() < 0.5 ? 1 : -1;
+            bag = {
+                fish: fish[i],
+                w: BAG[0].length,
+                h: BAG.length,
+                x: side < 0 ? 3 : COLS - BAG[0].length - 3,
+                drift: -side,
+                phase: rand(0, Math.PI * 2),
+                until: tick + Math.round(BAG_MS / STEP)
+            };
+            fish[i].bagged = true;
+            break;
+        }
+
         critters = [];
         var kinds = ['snail', 'pleco'];
         CRAWL_CLEAR = 2;
@@ -838,6 +883,7 @@
 
         for (i = 0; i < fish.length; i++) {
             var f = fish[i];
+            if (f.bagged) continue;   // riding in the bag, drawn with it
             var fw = f.sp.w, fh = f.sp.h;
             if (f.dart > 0) f.dart--;
             // The substrate is the floor: never let a fish dip into it.
@@ -935,7 +981,26 @@
         }
 
 
+        if (bag) {
+            if (tick % 11 === 0) bag.x += bag.drift;
+            if (bag.x < 2) bag.drift = 1;
+            if (bag.x + bag.w > COLS - 2) bag.drift = -1;
+            if (tick >= bag.until) {
+                // Let it out: the fish sinks into the tank, the surface closes over.
+                var newcomer = bag.fish;
+                newcomer.bagged = false;
+                newcomer.y = WATER + BAG.length;
+                newcomer.drawY = newcomer.y;
+                splash = { x: bag.x + bag.w / 2, t0: tick };
+                for (var bb = 0; bb < 12; bb++) {
+                    bubbleAt(Math.round(bag.x + bag.w / 2) + irand(-5, 5), WATER + irand(2, 9), irand(1, 4));
+                }
+                bag = null;
+            }
+        }
+
         drawSurface(t);
+        if (bag) drawBag(t);
         drawBed();
     }
 
@@ -975,6 +1040,25 @@
                 if (Math.abs(k) < 2) px(hx, hy - 1);
             }
         }
+    }
+
+    function drawBag(t) {
+        var bob = Math.round(Math.sin(t * 0.08 + bag.phase) * 1.2);
+        var x = Math.round(bag.x);
+        var y = WATER - 4 + bob;          // rides low, knot above the water
+
+        // the fish inside, riding with the bag
+        var f = bag.fish;
+        f.x = x + Math.round((bag.w - f.sp.w) / 2);
+        f.drawY = y + 5 + Math.round(Math.sin(t * 0.2 + bag.phase));
+        f.y = f.drawY;
+        var inner = [];
+        spriteCells(inner, f.sp.frames[Math.floor(t / f.sp.flap) % 2], f.x, f.drawY, f.dir < 0);
+        stamp(inner);
+
+        var cells = [];
+        spriteCells(cells, BAG, x, y, false);
+        stamp(cells, STONE);
     }
 
     // Painted last: rocks settle into the gravel rather than floating on it,
