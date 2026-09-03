@@ -40,10 +40,13 @@
 
     // Every block drawn is exactly CELL x CELL device pixels on an integer grid.
     var CELL = 8, COLS = 0, ROWS = 0, OX = 0, OY = 0;
-    var BED = 2;      // rows of solid substrate along the bottom
+    var BED = 4;      // rows of solid substrate along the bottom
+    var AIR = 3;      // rows of air above the waterline
+    var WATER = 3;    // row the water surface sits on
     var FLOOR = 0;    // first row of that substrate (everything rests on FLOOR - 1)
     var SWIM_FLOOR = 0; // swimming fish stay this far above it, clear of the crawlers
-    var EMBED = 1;    // rows a rock settles into whatever it lands on
+    var EMBED = 1;
+    var CRAWL_CLEAR = 7; // headroom kept above the ground for bottom dwellers    // rows a rock settles into whatever it lands on
 
     function rand(a, b) { return a + Math.random() * (b - a); }
     function irand(a, b) { return Math.floor(rand(a, b + 1)); }
@@ -94,6 +97,26 @@
                 ".##########",
                 "..########.",
                 "...######.."
+            ]]
+        },
+        danio: {
+            shoal: true, bobAmp: 1,
+            w: 14, h: 6, band: [0.06, 0.34], speed: [0.30, 0.52],
+            bob: [0.08, 0.16], flap: 3, rush: 4.6,
+            frames: [[
+                "......####....",
+                "#...##########",
+                "##.###########",
+                "###########.##",
+                "##.###########",
+                "#...##########"
+            ], [
+                "......####....",
+                "....##########",
+                "#..###########",
+                "###########.##",
+                "#..###########",
+                "....##########"
             ]]
         },
         discus: {
@@ -186,6 +209,30 @@
 
     // Bottom dwellers: they crawl on the substrate rather than swim.
     var CRITTERS = {
+        pleco: {
+            w: 20, h: 9, speed: [0.04, 0.10], flap: 9, rush: 5,
+            frames: [[
+                "........#####.......",
+                ".......#######......",
+                "#.....##############",
+                "##...###############",
+                "###.################",
+                "#################.##",
+                "###.################",
+                "##...###############",
+                "#.....#####...###..."
+            ], [
+                ".......#####........",
+                "......#######.......",
+                "#....###############",
+                "##..################",
+                "###.################",
+                "#################.##",
+                "###.################",
+                "##..################",
+                "#....###..#####....."
+            ]]
+        },
         snail: {
             w: 9, h: 6, speed: [0.015, 0.035], flap: 20, rush: 14,
             hides: true,
@@ -249,6 +296,7 @@
     var fish = [], critters = [], plants = [], gravel = [], bubbles = [];
     var rocks = [], falling = [];
     var nextRock = 0, disturb = 0, disturbX = 0;
+    var splash = null;   // ripple spreading from where a rock broke the surface
 
     var FIRST_ROCK_MS = 8000;
     var ROCK_GAP_MS = [30000, 120000];
@@ -267,6 +315,7 @@
         OX = Math.floor((w - COLS * CELL) / 2);
         OY = Math.floor((h - ROWS * CELL) / 2);
         FLOOR = ROWS - BED;
+        WATER = AIR;
         SWIM_FLOOR = FLOOR - Math.max(8, Math.round(ROWS * 0.09));
         build();
     }
@@ -288,8 +337,11 @@
             var blades = 2;
             for (var b = 0; b < blades; b++) {
                 plants.push({
+                    kind: (b === 0 && Math.random() < 0.4) ? 'broad' : 'blade',
+                    leaves: irand(4, 6),
                     x: px0 + b * irand(4, 7),
                     h: irand(Math.round(ROWS * 0.09), Math.round(ROWS * 0.17)),
+                    stem: irand(3, 6),
                     phase: rand(0, Math.PI * 2),
                     speed: rand(0.03, 0.055),
                     waves: rand(2.4, 4.0),
@@ -301,8 +353,9 @@
         fish = [];
         var schoolPace = {}, schoolSpot = {};
         var roster = small
-            ? ['tetra', 'tetra', 'tetra', 'angel', 'discus']
-            : ['tetra', 'tetra', 'tetra', 'tetra', 'tetra', 'hatchet', 'angel', 'discus'];
+            ? ['tetra', 'tetra', 'tetra', 'angel', 'discus', 'danio', 'danio']
+            : ['tetra', 'tetra', 'tetra', 'tetra', 'tetra', 'hatchet', 'angel', 'discus',
+               'danio', 'danio'];
         for (i = 0; i < roster.length; i++) {
             var sp = SPECIES[roster[i]];
             if (sp.shoal && !schoolPace[roster[i]]) {
@@ -351,7 +404,9 @@
 
         rocks = [];
         critters = [];
-        var kinds = ['snail'];
+        var kinds = ['snail', 'pleco'];
+        CRAWL_CLEAR = 2;
+        for (i = 0; i < kinds.length; i++) CRAWL_CLEAR = Math.max(CRAWL_CLEAR, CRITTERS[kinds[i]].h + 1);
         for (i = 0; i < kinds.length; i++) {
             var cs = CRITTERS[kinds[i]];
             critters.push({
@@ -403,7 +458,41 @@
         }
     }
 
+    // A rosette of rounded leaves, as a change from the strappy blades.
+    var LEAF = [
+        "..###..",
+        ".#####.",
+        "..###.."
+    ];
+
+    function drawBroad(p, t) {
+        var baseY = FLOOR - 1;
+        var sway = Math.sin(t * p.speed + p.phase);
+        for (var k = 0; k < p.stem; k++) {
+            px(p.x, baseY - k);
+            px(p.x + 1, baseY - k);
+        }
+        for (var i = 0; i < p.leaves; i++) {
+            var side = (i % 2) ? 1 : -1;
+            var lift = 2 + i * 2;
+            var reach = 4 + (i % 3);
+            var drift = Math.round(sway * (0.6 + i * 0.4));
+            var lx = p.x + side * reach + drift;
+            var ly = baseY - lift;
+            // stalk out to the leaf, so it is not a blob floating in the water
+            for (var q = 0; q <= reach; q++) {
+                px(p.x + (side > 0 ? 1 : 0) + side * q, baseY - Math.round(lift * q / reach));
+            }
+            for (var r = 0; r < LEAF.length; r++) {
+                for (var c = 0; c < LEAF[0].length; c++) {
+                    if (LEAF[r].charAt(c) === '#') px(lx + c - 3, ly - (LEAF.length - 1 - r));
+                }
+            }
+        }
+    }
+
     function drawPlant(p, t) {
+        if (p.kind === 'broad') { drawBroad(p, t); return; }
         var baseY = FLOOR - 1;
         var cells = [];
         for (var k = 0; k < p.h; k++) {
@@ -608,7 +697,10 @@
 
         disturb = 18;
         disturbX = x;
-        for (var b = 0; b < 4; b++) bubbleAt(x + irand(-1, 2), irand(1, 5), irand(2, 4));
+        splash = { x: x + shape.w / 2, t0: tick };
+        for (var b = 0; b < 22; b++) {
+            bubbleAt(x + shape.w / 2 + irand(-5, 5), WATER + irand(1, 9), irand(1, 4));
+        }
     }
 
     function updateRocks(t) {
@@ -622,7 +714,10 @@
             r.vy = Math.min(5.5, r.vy + 0.5);
             r.y += r.vy;
 
-            if (tick % 2 === 0 && r.y > 0) bubbleAt(Math.round(r.x) + irand(0, r.w), Math.round(r.y), irand(2, 4));
+            if (r.y > WATER) {
+                bubbleAt(Math.round(r.x) + irand(0, r.w), Math.round(r.y) + irand(0, 2), irand(1, 4));
+                if (tick % 2 === 0) bubbleAt(Math.round(r.x) + irand(0, r.w), Math.round(r.y), irand(2, 4));
+            }
 
             // Anything the rock plunges past scatters out of its way.
             var rcx = r.x + r.w / 2, rcy = r.y + r.h / 2;
@@ -757,7 +852,6 @@
 
         ctx.fillStyle = INK;
         for (i = 0; i < plants.length; i++) drawPlant(plants[i], t);
-
         updateRocks(t);
         for (i = 0; i < rocks.length; i++) drawRock(rocks[i], rocks[i].x, rocks[i].y);
         for (i = 0; i < falling.length; i++) drawRock(falling[i], Math.round(falling[i].x), Math.round(falling[i].y));
@@ -765,7 +859,7 @@
         updateCritters(t);
 
         // Every so often the substrate lets a bubble go.
-        if (Math.random() < 0.02 && bubbles.length < 5) {
+        if (Math.random() < 0.02 && bubbles.length < 60) {
             var bx = irand(2, COLS - 3);
             var by = groundUnder(bx, 1) - 1;
             bubbleAt(bx, by, irand(2, 4));
@@ -775,7 +869,7 @@
         for (i = bubbles.length - 1; i >= 0; i--) {
             var b = bubbles[i];
             if (tick % b.rate === 0) b.y -= 1;
-            if (b.y < 0) bubbles.splice(i, 1);
+            if (b.y <= WATER + 1) bubbles.splice(i, 1);
             else px(b.x + (Math.sin(t * 0.4 + b.phase) > 0 ? 0 : 1), b.y);
         }
 
@@ -785,7 +879,7 @@
             if (f.dart > 0) f.dart--;
             // The substrate is the floor: never let a fish dip into it.
             // Stay clear of the bed, and of anything crawling on the pile below.
-            var maxDrawY = Math.min(SWIM_FLOOR, groundUnder(Math.round(f.x), fw) - 6) - fh;
+            var maxDrawY = Math.min(SWIM_FLOOR, groundUnder(Math.round(f.x), fw) - CRAWL_CLEAR) - fh;
             f.drawY = Math.min(maxDrawY, Math.round(f.y + Math.sin(t * f.bob + f.phase) * (f.sp.bobAmp || 2)));
 
             // Lift clear immediately if a rock came to rest on top of a fish.
@@ -857,7 +951,7 @@
             // Ease apart from a crowding neighbour, one notch at a time.
             if (space) {
                 var lift = space.y >= 0 ? 0.7 : -0.7;
-                var sy2 = Math.max(1, Math.min(maxDrawY - 2, f.y + lift));
+                var sy2 = Math.max(WATER + 3, Math.min(maxDrawY - 2, f.y + lift));
                 var sDraw = Math.round(sy2 + Math.sin(t * f.bob + f.phase) * (f.sp.bobAmp || 2));
                 if (!blockedBy(f.x, sDraw, fw, fh) && !critterHit(f.x, sDraw, fw, fh) &&
                     (tangled || !fishHit(f, f.x, sDraw))) f.y = sy2;
@@ -870,7 +964,7 @@
                 if (blockedBy(f.x, nDraw, fw, fh) || critterHit(f.x, nDraw, fw, fh)) f.fleeT = 0;
                 else f.y = ny;
             }
-            f.y = Math.max(1, Math.min(maxDrawY - 2, f.y));
+            f.y = Math.max(WATER + 3, Math.min(maxDrawY - 2, f.y));
             // The screen is the tank: fish turn at the glass instead of wrapping.
             if (f.x < 1) { f.x = 1; f.dir = 1; }
             if (f.x + fw > COLS - 1) { f.x = COLS - 1 - fw; f.dir = -1; }
@@ -878,7 +972,46 @@
         }
 
 
+        drawSurface(t);
         drawBed();
+    }
+
+    // The waterline: a slow swell across the top of the tank.
+    function drawSurface(t) {
+        ctx.fillStyle = INK;
+        var age = splash ? t - splash.t0 : -1;
+        if (splash && age > 70) splash = null;
+
+        for (var c = 0; c < COLS; c++) {
+            var swell = 0;   // a tank sits flat until something disturbs it
+
+            if (splash) {
+                var d = Math.abs(c - splash.x);
+                var fade = Math.max(0, 1 - age / 70);
+                // Leading ring, and a slower one trailing behind it.
+                var rel = d - age * 1.6;
+                if (Math.abs(rel) < 7) swell += Math.cos(rel * 0.45) * 3.0 * fade;
+                var rel2 = d - age * 0.85;
+                if (Math.abs(rel2) < 6) swell += Math.cos(rel2 * 0.5) * 1.6 * fade;
+                // The hole the stone punches, closing over as it fills.
+                if (age < 7 && d < 5 - age * 0.6) swell += 3.5 - age * 0.4;
+            }
+
+            var y = WATER + Math.round(swell);
+            px(c, y);
+        }
+
+        // Water thrown up as the stone goes under.
+        if (splash && age < 6) {
+            var spread = 2 + age;
+            for (var k = -spread; k <= spread; k++) {
+                if (Math.abs(k) < age - 1) continue;
+                var hx = Math.round(splash.x + k);
+                var hy = WATER - Math.round((spread - Math.abs(k)) * 0.8) - 1;
+                px(hx, hy);
+                if (Math.abs(k) < 2) px(hx, hy - 1);
+            }
+        }
     }
 
     // Painted last: rocks settle into the gravel rather than floating on it,
