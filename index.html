@@ -125,7 +125,7 @@
                     x: px0 + b * irand(4, 7),
                     h: irand(Math.round(ROWS * 0.12), Math.round(ROWS * 0.22)),
                     phase: rand(0, Math.PI * 2),
-                    speed: rand(0.05, 0.09),
+                    speed: rand(0.03, 0.055),
                     waves: rand(2.4, 4.0),
                     bend: rand(1.5, 2.6)
                 });
@@ -159,9 +159,9 @@
                 x: rand(0, COLS),
                 y: Math.round(rand(ROWS * 0.10, ROWS * 0.60)),
                 dir: Math.random() < 0.5 ? -1 : 1,
-                speed: rand(0.35, 0.8),
+                speed: rand(0.16, 0.38),
                 phase: rand(0, Math.PI * 2),
-                bob: rand(0.10, 0.22)
+                bob: rand(0.05, 0.12)
             });
         }
 
@@ -211,7 +211,7 @@
     }
 
     function drawJelly(j, t) {
-        var f = Math.floor(t / 5 + j.phase) % 2;
+        var f = Math.floor(t / 9 + j.phase) % 2;
         var rows = JELLY[f];
         var x = Math.round(j.x);
         var y = Math.round(j.y);
@@ -223,7 +223,7 @@
             var ax = x + JELLY_ANCHORS[a];
             var len = j.tail - (a % 2) - (f === 1 ? 1 : 0);
             for (var k = 0; k < len; k++) {
-                var off = Math.round(Math.sin(t * 0.13 + j.phase + a * 1.3 + k * 0.5) * 1.4);
+                var off = Math.round(Math.sin(t * 0.075 + j.phase + a * 1.3 + k * 0.5) * 1.4);
                 cells.push(ax + off, hemY + k);
             }
         }
@@ -231,7 +231,7 @@
     }
 
     function drawFish(f, t) {
-        var frame = Math.floor(t / 3 + f.phase * 3) % 2;
+        var frame = Math.floor(t / 5 + f.phase * 3) % 2;
         var y = Math.round(f.y + Math.sin(t * f.bob + f.phase) * 2);
         var cells = [];
         spriteCells(cells, FISH[frame], Math.round(f.x), y, f.dir < 0);
@@ -240,7 +240,7 @@
 
     // ---------- loop ----------
     var tick = 0, last = 0;
-    var STEP = 90; // ms per animation step -> chunky, pixel-art timing
+    var STEP = 140; // ms per animation step -> chunky, pixel-art timing
 
     function frame(now) {
         requestAnimationFrame(frame);
@@ -257,14 +257,14 @@
         for (i = 0; i < gravel.length; i++) px(gravel[i][0], gravel[i][1]);
         for (i = 0; i < plants.length; i++) drawPlant(plants[i], t);
 
-        if (Math.random() < 0.015 && bubbles.length < 2) {
+        if (Math.random() < 0.008 && bubbles.length < 2) {
             bubbles.push({ x: irand(2, COLS - 3), y: ROWS - 3 });
         }
         for (i = bubbles.length - 1; i >= 0; i--) {
             var b = bubbles[i];
-            if (tick % 2 === 0) b.y -= 1;
+            if (tick % 3 === 0) b.y -= 1;
             if (b.y < 0) bubbles.splice(i, 1);
-            else px(b.x + (tick % 6 < 3 ? 0 : 1), b.y);
+            else px(b.x + (tick % 10 < 5 ? 0 : 1), b.y);
         }
 
         var fw = FISH[0][0].length;
@@ -281,13 +281,13 @@
         for (i = 0; i < jellies.length; i++) {
             var j = jellies[i];
             if (j.up) {
-                if (tick % 5 === 0) j.y -= 1;
+                if (tick % 8 === 0) j.y -= 1;
                 if (j.y <= j.top) j.up = false;
             } else {
-                if (tick % 11 === 0) j.y += 1;
+                if (tick % 18 === 0) j.y += 1;
                 if (j.y >= j.bottom) j.up = true;
             }
-            if (tick % 24 === 0) j.x += j.drift;
+            if (tick % 40 === 0) j.x += j.drift;
             if (j.x < 1) j.drift = 1;
             if (j.x > COLS - JELLY[0][0].length - 1) j.drift = -1;
             drawJelly(j, t);
