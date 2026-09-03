@@ -363,15 +363,22 @@
         canvas.width = w;
         canvas.height = h;
 
-        var targetCols = canvas.clientWidth < 640 ? 115 : 215;
-        CELL = Math.max(3, Math.round(w / targetCols));
+        // A cell is one fixed size on screen, never a share of the window:
+        // the tank looks identical on a phone and on a monitor, and a bigger
+        // window simply shows more of it.
+        CELL = Math.max(2, Math.round(2.9 * dpr));
         COLS = Math.floor(w / CELL);
         ROWS = Math.floor(h / CELL);
         OX = Math.floor((w - COLS * CELL) / 2);
         OY = Math.floor((h - ROWS * CELL) / 2);
+        // Air and substrate are fixed depths too, so the waterline sits the
+        // same distance from the top and the bed is the same thickness in
+        // every window; a taller one just holds more water between them.
+        BED = 8;
+        AIR = 29;
         FLOOR = ROWS - BED;
         WATER = AIR;
-        SWIM_FLOOR = FLOOR - Math.max(8, Math.round(ROWS * 0.09));
+        SWIM_FLOOR = FLOOR - 22;
         build();
     }
 
@@ -385,7 +392,9 @@
         }
 
         plants = [];
-        var pCount = 4;
+        // Plants and shoals are spaced by how much tank there is, so a wider
+        // window fills with more of the same life instead of thinning out.
+        var pCount = Math.max(4, Math.round(COLS / 100));
         for (i = 0; i < pCount; i++) {
             var px0 = Math.round((i + rand(0.28, 0.72)) * (COLS / pCount));
             px0 = Math.max(2, Math.min(COLS - 12, px0));
@@ -393,7 +402,7 @@
             for (var b = 0; b < blades; b++) {
                 plants.push({
                     x: px0 + b * irand(4, 7),
-                    h: irand(Math.round(ROWS * 0.09), Math.round(ROWS * 0.17)),
+                    h: irand(22, 42),
                     phase: rand(0, Math.PI * 2),
                     speed: rand(0.03, 0.055),
                     waves: rand(2.4, 4.0),
@@ -408,6 +417,8 @@
             ? ['tetra', 'tetra', 'tetra', 'angel', 'discus', 'danio', 'danio']
             : ['tetra', 'tetra', 'tetra', 'tetra', 'tetra', 'hatchet', 'angel', 'discus',
                'danio', 'danio'];
+        var extra = small ? 0 : Math.round((COLS - 215) / 48);
+        for (i = 0; i < extra; i++) roster.push(i % 3 === 2 ? 'danio' : 'tetra');
         for (i = 0; i < roster.length; i++) {
             var sp = SPECIES[roster[i]];
             if (sp.shoal && !schoolPace[roster[i]]) {
@@ -421,9 +432,12 @@
             var pace = sp.shoal ? schoolPace[roster[i]] * rand(0.92, 1.08)
                                 : rand(sp.speed[0], sp.speed[1]);
             var spot = schoolSpot[roster[i]];
-            var spawnY = spot ? Math.round(spot.y + rand(-10, 10))
+            // A bigger shoal needs a bigger huddle, or its members spawn on
+            // top of each other and the clash test never finds them room.
+            var huddle = Math.max(1, Math.sqrt(roster.length / 10));
+            var spawnY = spot ? Math.round(spot.y + rand(-10, 10) * huddle)
                               : Math.round(rand(ROWS * sp.band[0], ROWS * sp.band[1]));
-            var spawnX = spot ? spot.x + rand(-30, 30)
+            var spawnX = spot ? spot.x + rand(-30, 30) * huddle
                               : rand(2, Math.max(3, COLS - sp.w - 2));
             for (var tries = 0; tries < 24; tries++) {
                 var clash = false;
@@ -433,9 +447,9 @@
                         spawnY + sp.h + 3 > o.y && o.y + o.sp.h + 3 > spawnY) { clash = true; break; }
                 }
                 if (!clash) break;
-                spawnX = spot ? spot.x + rand(-24, 24)
+                spawnX = spot ? spot.x + rand(-24, 24) * huddle
                               : rand(2, Math.max(3, COLS - sp.w - 2));
-                spawnY = spot ? Math.round(spot.y + rand(-9, 9))
+                spawnY = spot ? Math.round(spot.y + rand(-9, 9) * huddle)
                               : Math.round(rand(ROWS * sp.band[0], ROWS * sp.band[1]));
             }
             fish.push({
