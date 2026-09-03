@@ -908,12 +908,6 @@
         }
     }
 
-    function drawRock(r, x, y) {
-        var cells = [];
-        spriteCells(cells, r.rows, x, y, false);
-        stamp(cells, STONE);
-    }
-
     // ---------- loop ----------
     var tick = 0, last = 0;
     var STEP = 140; // ms per animation step -> chunky, pixel-art timing
@@ -933,8 +927,16 @@
         ctx.fillStyle = INK;
         for (i = 0; i < plants.length; i++) drawPlant(plants[i], t);
         updateRocks(t);
-        for (i = 0; i < rocks.length; i++) drawRock(rocks[i], rocks[i].x, rocks[i].y);
-        for (i = 0; i < falling.length; i++) drawRock(falling[i], Math.round(falling[i].x), Math.round(falling[i].y));
+        // Stamped as one mass, so touching stones meld instead of each
+        // carving a white outline into its neighbour.
+        var rockCells = [];
+        for (i = 0; i < rocks.length; i++) {
+            spriteCells(rockCells, rocks[i].rows, rocks[i].x, rocks[i].y, false);
+        }
+        for (i = 0; i < falling.length; i++) {
+            spriteCells(rockCells, falling[i].rows, Math.round(falling[i].x), Math.round(falling[i].y), false);
+        }
+        stamp(rockCells, STONE);
 
         updateCritters(t);
 
