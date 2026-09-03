@@ -301,32 +301,42 @@
     // A new fish arrives the way it does from a shop: floating in a tied bag,
     // acclimatising at the surface before it is let out.
     var BAG = [
-        "..............##..##............",
-        ".............####.####..........",
-        ".............##########.........",
-        "..............########..........",
-        "..............#......#..........",
-        ".............#........#.........",
-        "............#..........#........",
-        "..........#..............#......",
-        ".........#................#.....",
-        "........#..................#....",
-        ".......#....................#...",
-        "......#......................#..",
-        ".....#........................#.",
-        ".....#........................#.",
-        "....#..........................#",
-        "....#..........................#",
-        "....#..........................#",
-        "....#..........................#",
-        "....#..........................#",
-        ".....#........................#.",
-        ".....#........................#.",
-        "......#......................#..",
-        ".......#....................#...",
-        "........#..................#....",
-        ".........#................#.....",
-        "..........################......"
+        "..................###.................",
+        "...............##.#.#.##..............",
+        "...............####.####..............",
+        "................#.....#...............",
+        "..............###.....###.............",
+        "............###.........###...........",
+        "...........#...............#..........",
+        ".........###...............###........",
+        ".......###...................###......",
+        "......#.........................#.....",
+        "....###.........................###...",
+        "..###.............................###.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "..#.................................#.",
+        "...#...............................#..",
+        "...###...........................###..",
+        ".....###.......................###....",
+        ".......#####...............#####......",
+        "...........####.........####..........",
+        "..............###########............."
     ];
     var bag = null;
     var BAG_MS = 45000;
@@ -441,9 +451,13 @@
                 fish: fish[i],
                 w: BAG[0].length,
                 h: BAG.length,
-                x: side < 0 ? 3 : COLS - BAG[0].length - 3,
+                x: side < 0 ? 8 : COLS - BAG[0].length - 8,
                 drift: -side,
                 phase: rand(0, Math.PI * 2),
+                theta: 0.12, omega: 0.03,   // tilt, and how fast it is rolling
+                bobY: 0, bobV: 0,
+                fx: 6, fvx: 0.25,           // where the fish is inside the bag
+                fy: 1, fvy: 0.12,
                 until: tick + Math.round(BAG_MS / STEP)
             };
             fish[i].bagged = true;
@@ -711,6 +725,11 @@
         disturb = 18;
         disturbX = x;
         splash = { x: x + shape.w / 2, t0: tick };
+        if (bag) {
+            var away = (bag.x + bag.w / 2) - x;
+            bag.omega += (away >= 0 ? 1 : -1) * 0.16;
+            bag.bobV += 0.6;
+        }
         for (var b = 0; b < 22; b++) {
             bubbleAt(x + shape.w / 2 + irand(-5, 5), WATER + irand(1, 9), irand(1, 4));
         }
@@ -988,10 +1007,26 @@
 
         if (bag) {
             if (tick % 11 === 0) bag.x += bag.drift;
-            if (bag.x < 2) bag.drift = 1;
-            if (bag.x + bag.w > COLS - 2) bag.drift = -1;
+            if (bag.x < 7) { bag.x = 7; bag.drift = 1; }
+            if (bag.x + bag.w > COLS - 7) { bag.x = COLS - 7 - bag.w; bag.drift = -1; }
+
+            // Floating plastic: a damped roll and bob, nudged by the water.
+            bag.omega += -0.05 * bag.theta - 0.07 * bag.omega + rand(-0.004, 0.004);
+            bag.theta = Math.max(-0.42, Math.min(0.42, bag.theta + bag.omega));
+            bag.bobV += -0.05 * bag.bobY - 0.09 * bag.bobV + rand(-0.03, 0.03);
+            bag.bobY = Math.max(-2.5, Math.min(2.5, bag.bobY + bag.bobV));
+
+            // the fish has room to swim in there
+            var span = bag.w - 8 - bag.fish.sp.w;
+            bag.fx += bag.fvx;
+            if (bag.fx < 0) { bag.fx = 0; bag.fvx = Math.abs(bag.fvx); bag.fish.dir = 1; }
+            if (bag.fx > span) { bag.fx = span; bag.fvx = -Math.abs(bag.fvx); bag.fish.dir = -1; }
+            var drop = (bag.h - 4) - 13 - bag.fish.sp.h;
+            bag.fy += bag.fvy;
+            if (bag.fy < 0) { bag.fy = 0; bag.fvy = Math.abs(bag.fvy); }
+            if (bag.fy > drop) { bag.fy = drop; bag.fvy = -Math.abs(bag.fvy); }
+
             if (tick >= bag.until) {
-                // Let it out: the fish sinks into the tank, the surface closes over.
                 var newcomer = bag.fish;
                 newcomer.bagged = false;
                 newcomer.y = WATER + BAG.length;
@@ -1048,29 +1083,39 @@
     }
 
     function drawBag(t) {
-        var bob = Math.round(Math.sin(t * 0.08 + bag.phase) * 1.2);
         var x = Math.round(bag.x);
-        var y = WATER - 12 + bob;         // waterline crosses it: air above, water below
+        var y = WATER - 12 + Math.round(bag.bobY);   // waterline crosses it
+        var mid = bag.h / 2;
 
-        // the fish inside, riding with the bag
+        // Leaning the sprite row by row is what reads as a roll.
+        function lean(cells, originY) {
+            for (var i = 0; i < cells.length; i += 2) {
+                cells[i] += Math.round((cells[i + 1] - originY - mid) * bag.theta);
+            }
+            return cells;
+        }
+
         var f = bag.fish;
-        f.x = x + Math.round((bag.w - f.sp.w) / 2);
-        f.drawY = y + 13 + Math.round(Math.sin(t * 0.2 + bag.phase));
+        f.x = x + 4 + Math.round(bag.fx);
+        f.drawY = y + 13 + Math.round(bag.fy);
         f.y = f.drawY;
         var inner = [];
         spriteCells(inner, f.sp.frames[Math.floor(t / f.sp.flap) % 2], f.x, f.drawY, f.dir < 0);
-        stamp(inner);
+        stamp(lean(inner, y));
 
         var cells = [];
         spriteCells(cells, BAG, x, y, false);
-        stamp(cells, STONE);
+        stamp(lean(cells, y), STONE);
 
         // the water it is half filled with, its level just above the tank's
-        var lvl = y + 10;
+        var lvl = y + 11;
         var row = BAG[lvl - y];
         var left = row.indexOf('#'), right = row.lastIndexOf('#');
+        var water = [];
+        for (var c = left + 1; c < right; c++) water.push(x + c, lvl);
+        lean(water, y);
         ctx.fillStyle = INK;
-        for (var c = left + 1; c < right; c++) px(x + c, lvl);
+        for (var q = 0; q < water.length; q += 2) px(water[q], water[q + 1]);
     }
 
     // Painted last: rocks settle into the gravel rather than floating on it,
