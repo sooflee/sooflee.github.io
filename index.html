@@ -52,6 +52,7 @@
     // Each species is a pixel silhouette plus the water it prefers.
     var SPECIES = {
         tetra: {
+            shoal: true,
             w: 12, h: 7, band: [0.08, 0.70], speed: [0.16, 0.38],
             bob: [0.05, 0.12], flap: 5, rush: 4.2,
             frames: [[
@@ -96,46 +97,52 @@
             ]]
         },
         angel: {
-            w: 13, h: 18, band: [0.20, 0.52], speed: [0.07, 0.16],
+            w: 15, h: 21, band: [0.20, 0.52], speed: [0.06, 0.14],
             bob: [0.03, 0.07], flap: 6, rush: 3.0,
             frames: [[
-                "#............",
-                ".#...........",
-                ".##..........",
-                "..##.........",
-                "..####.......",
-                "..######.....",
-                ".########....",
-                ".##########..",
-                "#############",
-                "##########.##",
-                "#############",
-                ".##########..",
-                ".########....",
-                "..######.....",
-                "..####.......",
-                "..##.........",
-                ".##..........",
-                "#............"
+                "#..............",
+                ".#.............",
+                ".##............",
+                "..##...........",
+                "..####.........",
+                "..#####........",
+                ".########......",
+                ".##########....",
+                "############...",
+                "##############.",
+                "###############",
+                "###########.###",
+                "###############",
+                "##############.",
+                "############...",
+                ".##########....",
+                ".########......",
+                "..#####........",
+                "..####.........",
+                ".##............",
+                "#.............."
             ], [
-                ".#...........",
-                ".##..........",
-                "..##.........",
-                "..###........",
-                "..#####......",
-                ".#######.....",
-                ".#########...",
-                "############.",
-                "#############",
-                "##########.##",
-                "#############",
-                "############.",
-                ".#########...",
-                ".#######.....",
-                "..#####......",
-                "..###........",
-                "..##.........",
-                ".#..........."
+                ".#.............",
+                ".##............",
+                "..##...........",
+                "..###..........",
+                "..#####........",
+                ".#######.......",
+                ".#########.....",
+                "###########....",
+                "#############..",
+                "##############.",
+                "###############",
+                "###########.###",
+                "###############",
+                "##############.",
+                "#############..",
+                "###########....",
+                ".#########.....",
+                ".#######.......",
+                "..#####........",
+                "..###..........",
+                ".#............."
             ]]
         },
     };
@@ -264,7 +271,7 @@
         canvas.width = w;
         canvas.height = h;
 
-        var targetCols = canvas.clientWidth < 640 ? 100 : 185;
+        var targetCols = canvas.clientWidth < 640 ? 115 : 215;
         CELL = Math.max(3, Math.round(w / targetCols));
         COLS = Math.floor(w / CELL);
         ROWS = Math.floor(h / CELL);
@@ -276,7 +283,7 @@
     }
 
     function build() {
-        var small = COLS < 120;
+        var small = COLS < 140;
         var i;
 
         gravel = [];
@@ -293,7 +300,7 @@
             for (var b = 0; b < blades; b++) {
                 plants.push({
                     x: px0 + b * irand(4, 7),
-                    h: irand(Math.round(ROWS * 0.10), Math.round(ROWS * 0.19)),
+                    h: irand(Math.round(ROWS * 0.09), Math.round(ROWS * 0.17)),
                     phase: rand(0, Math.PI * 2),
                     speed: rand(0.03, 0.055),
                     waves: rand(2.4, 4.0),
@@ -303,11 +310,15 @@
         }
 
         fish = [];
+        var schoolPace = {};
         var roster = small
-            ? ['tetra', 'angel']
-            : ['tetra', 'tetra', 'hatchet', 'angel'];
+            ? ['tetra', 'tetra', 'tetra', 'angel']
+            : ['tetra', 'tetra', 'tetra', 'tetra', 'tetra', 'hatchet', 'angel'];
         for (i = 0; i < roster.length; i++) {
             var sp = SPECIES[roster[i]];
+            if (sp.shoal && !schoolPace[roster[i]]) schoolPace[roster[i]] = rand(sp.speed[0], sp.speed[1]);
+            var pace = sp.shoal ? schoolPace[roster[i]] * rand(0.92, 1.08)
+                                : rand(sp.speed[0], sp.speed[1]);
             var spawnY = Math.round(rand(ROWS * sp.band[0], ROWS * sp.band[1]));
             var spawnX = rand(2, Math.max(3, COLS - sp.w - 2));
             for (var tries = 0; tries < 24; tries++) {
@@ -327,7 +338,7 @@
                 y: spawnY,
                 drawY: spawnY,
                 dir: Math.random() < 0.5 ? -1 : 1,
-                speed: rand(sp.speed[0], sp.speed[1]),
+                speed: pace,
                 phase: rand(0, Math.PI * 2),
                 bob: rand(sp.bob[0], sp.bob[1]),
                 dart: 0,
@@ -640,16 +651,34 @@
             var rest = restingRow(r, Math.round(r.x));
             if (r.y >= rest) {
                 // It has met something. Does it sit, or roll off the shoulder?
-                var sup = supportInfo(r, Math.round(r.x), rest);
-                r.rolls = (r.rolls || 0) + (sup.stable ? 0 : 1);
-                if (!sup.stable && r.rolls < 90) {
-                    r.y = rest;
-                    var nx = Math.round(r.x) + sup.roll;
-                    if (nx < 0 || nx + r.w > COLS) {
-                        // Wedged against the glass: let it settle where it is.
-                    } else {
+                var rx0 = Math.round(r.x);
+                r.rolls = r.rolls || 0;
+                var sup = supportInfo(r, rx0, rest);
+                var reversing = 0;
+
+                // Angle of repose: even a well-seated stone slides on if the
+                // ground close by is a good deal lower.
+                var slideDir = 0, bestDrop = 2;
+                for (var d = -1; d <= 1; d += 2) {
+                    for (var look = 1; look <= 14; look++) {
+                        var tx = rx0 + d * look;
+                        if (tx < 0 || tx + r.w > COLS) break;
+                        var drop = restingRow(r, tx) - rest;
+                        if (drop > bestDrop) { bestDrop = drop; slideDir = d; }
+                    }
+                }
+
+                var roll = slideDir || (sup.stable ? 0 : sup.roll);
+                if (roll && r.rolls < 40) {
+                    // Never roll back the way we came, or it shivers in place.
+                    reversing = r.lastRoll && r.lastRoll === -roll;
+                    var nx = rx0 + roll;
+                    if (nx >= 0 && nx + r.w <= COLS && !reversing) {
+                        r.y = rest;
                         r.x = nx;
                         r.vy = 0.6;
+                        r.lastRoll = roll;
+                        r.rolls++;
                         continue;
                     }
                 }
@@ -771,6 +800,37 @@
 
             // Lift clear immediately if a rock came to rest on top of a fish.
             for (var esc = 0; esc < 12 && blockedBy(f.x, f.drawY, fw, fh); esc++) { f.y -= 1; f.drawY -= 1; }
+
+            if (f.sp.shoal && f.dart <= 0) {
+                var n = 0, sumY = 0, vote = 0, nearestDx = null;
+                for (var k = 0; k < fish.length; k++) {
+                    var g = fish[k];
+                    if (g === f || g.sp !== f.sp) continue;
+                    var gdx = (g.x + g.sp.w / 2) - (f.x + f.sp.w / 2);
+                    if (nearestDx === null || Math.abs(gdx) < Math.abs(nearestDx)) nearestDx = gdx;
+                    if (Math.abs(gdx) < 60 && Math.abs(g.drawY - f.drawY) < 28) {
+                        n++;
+                        sumY += g.y;
+                        vote += g.dir;
+                    }
+                }
+                if (n > 0) {
+                    if (tick % 9 === 0 && vote !== 0) {
+                        var want = vote > 0 ? 1 : -1;
+                        if (want !== f.dir && f.turnLock <= 0) { f.dir = want; f.turnLock = 6; }
+                    }
+                    var meanY = sumY / n;
+                    if (Math.abs(meanY - f.y) > 2) {
+                        var cy = f.y + (meanY > f.y ? 0.3 : -0.3);
+                        var cDraw = Math.round(cy + Math.sin(t * f.bob + f.phase) * 2);
+                        if (!blockedBy(f.x, cDraw, fw, fh) && !critterHit(f.x, cDraw, fw, fh) &&
+                            !fishHit(f, f.x, cDraw)) f.y = cy;
+                    }
+                } else if (nearestDx !== null && tick % 12 === 0 && f.turnLock <= 0) {
+                    f.dir = nearestDx >= 0 ? 1 : -1;   // strayed: head back to the school
+                    f.turnLock = 6;
+                }
+            }
 
             if (f.turnLock > 0) f.turnLock--;
             var rush = f.dart > 0 ? f.sp.rush : 1;
