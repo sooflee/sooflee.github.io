@@ -220,7 +220,21 @@
             }
             rows.push(line);
         }
-        return { rows: rows, w: w, h: h };
+
+        // Per-column surface profile, so rocks rest on each other's actual
+        // shape rather than on their bounding boxes.
+        var top = [], bottom = [];
+        for (var c = 0; c < w; c++) {
+            top[c] = -1;
+            bottom[c] = -1;
+            for (var y = 0; y < h; y++) {
+                if (rows[y].charAt(c) === '#') {
+                    if (top[c] < 0) top[c] = y;
+                    bottom[c] = y;
+                }
+            }
+        }
+        return { rows: rows, w: w, h: h, top: top, bottom: bottom };
     }
 
     var fish = [], critters = [], plants = [], gravel = [], bubbles = [];
@@ -305,6 +319,7 @@
                 kind: kinds[i],
                 sp: cs,
                 x: rand(4, Math.max(5, COLS - cs.w - 4)),
+                y: ROWS - 2 - cs.h,
                 dir: Math.random() < 0.5 ? -1 : 1,
                 speed: rand(cs.speed[0], cs.speed[1]),
                 phase: rand(0, Math.PI * 2),
@@ -367,48 +382,40 @@
         stamp(cells);
     }
 
+    // The ground under a critter's footprint: the substrate, or the top of
+    // whatever rock it is walking over.
+    function groundUnder(x, w) {
+        var top = ROWS - 2;
+        for (var c = x; c < x + w; c++) {
+            var surf = surfaceAt(c);
+            if (surf < top) top = surf;
+        }
+        return top;
+    }
+
     function updateCritters(t) {
         for (var i = 0; i < critters.length; i++) {
             var c = critters[i];
-            var y = ROWS - 2 - c.sp.h;
-            if (c.turnLock > 0) c.turnLock--;
             if (c.dartT > 0) c.dartT--;
-
-            // Shoved out from under a rock that came to rest on top of it.
-            if (blockedBy(c.x, y, c.sp.w, c.sp.h)) {
-                var out = 0;
-                for (var k = 0; k < rocks.length; k++) {
-                    var rk = rocks[k];
-                    if (c.x + c.sp.w > rk.x && rk.x + rk.w > c.x && y + c.sp.h > rk.y && rk.y + rk.h > y) {
-                        out = ((c.x + c.sp.w) - rk.x) <= ((rk.x + rk.w) - c.x) ? -1 : 1;
-                        break;
-                    }
-                }
-                c.x = Math.max(1, Math.min(COLS - 1 - c.sp.w, c.x + out));
-                c.dir = out || c.dir;
-                c.hideT = Math.max(c.hideT, 6);
-            }
 
             if (c.hideT > 0) {
                 c.hideT--;
             } else {
-                var rush = c.dartT > 0 ? c.sp.rush : 1;
-                var step = c.dir * c.speed * rush;
-                if (blockedBy(c.x + step, y, c.sp.w, c.sp.h)) {
-                    if (c.turnLock <= 0) { c.dir = -c.dir; c.turnLock = 12; }
-                    step = c.dir * c.speed * rush;
-                    if (blockedBy(c.x + step, y, c.sp.w, c.sp.h)) step = 0;
-                }
-                c.x += step;
+                c.x += c.dir * c.speed * (c.dartT > 0 ? c.sp.rush : 1);
                 if (c.x < 1) { c.x = 1; c.dir = 1; }
                 if (c.x + c.sp.w > COLS - 1) { c.x = COLS - 1 - c.sp.w; c.dir = -1; }
             }
+
+            // Climb over rocks a row at a time instead of stepping through them.
+            var target = groundUnder(Math.round(c.x), c.sp.w) - c.sp.h;
+            if (c.y > target) c.y -= 1;            // climbing is slow
+            else if (c.y < target) c.y += Math.min(2, target - c.y);   // dropping off a ledge is quicker
 
             var rows;
             if (c.hideT > 0 && c.sp.hidden) rows = c.sp.hidden;
             else rows = c.sp.frames[Math.floor(t / (c.dartT > 0 ? 2 : c.sp.flap) + c.phase * 3) % 2];
             var cells = [];
-            spriteCells(cells, rows, Math.round(c.x), y, c.dir < 0);
+            spriteCells(cells, rows, Math.round(c.x), Math.round(c.y), c.dir < 0);
             stamp(cells);
         }
     }
@@ -427,13 +434,52 @@
 
     // Where a rock dropped at column x comes to rest: on the substrate, or
     // stacked on top of whatever landed there before.
-    function restingRow(x, w, h) {
-        var row = ROWS - h;
+    // Height of the pile's surface in column c (ROWS when nothing is there).
+    function surfaceAt(c, skip) {
+        var top = ROWS;
         for (var i = 0; i < rocks.length; i++) {
             var r = rocks[i];
-            if (x + w > r.x && r.x + r.w > x) row = Math.min(row, r.y - h);
+            if (r === skip || c < r.x || c >= r.x + r.w) continue;
+            var t = r.top[c - r.x];
+            if (t >= 0 && r.y + t < top) top = r.y + t;
+        }
+        return top;
+    }
+
+    function restingRow(shape, x, skip) {
+        var row = ROWS;
+        for (var c = 0; c < shape.w; c++) {
+            if (shape.bottom[c] < 0) continue;
+            var candidate = surfaceAt(x + c, skip) - 1 - shape.bottom[c];
+            if (candidate < row) row = candidate;
         }
         return row;
+    }
+
+    // What a rock at (x, y) is actually resting on: which of its bottom
+    // columns touch the top of a rock below. A wide, centred contact holds;
+    // anything perched on a rounded shoulder rolls off.
+    function supportInfo(shape, x, y) {
+        var lo = -1, hi = -1, touches = 0, onFloor = false;
+        for (var c = 0; c < shape.w; c++) {
+            if (shape.bottom[c] < 0) continue;
+            var surf = surfaceAt(x + c);
+            if (y + shape.bottom[c] + 1 === surf) {
+                if (lo < 0) lo = x + c;
+                hi = x + c;
+                touches++;
+                if (surf >= ROWS) onFloor = true;
+            }
+        }
+
+        if (onFloor) return { stable: true };
+        if (!touches) return { stable: false, roll: Math.random() < 0.5 ? -1 : 1 };
+
+        var cx = x + shape.w / 2;
+        var wide = touches >= Math.max(2, Math.floor(shape.w * 0.5));
+        var centred = cx >= lo && cx <= hi + 1;
+        if (wide && centred) return { stable: true };
+        return { stable: false, roll: cx < (lo + hi + 1) / 2 ? -1 : 1 };
     }
 
     // A landed rock is solid: fish turn around at it rather than swimming through.
@@ -471,7 +517,7 @@
     function dropRock() {
         var shape = makeRock();
         var x = irand(4, Math.max(5, COLS - shape.w - 4));
-        falling.push({ x: x, y: -shape.h, vy: 0.7, rows: shape.rows, w: shape.w, h: shape.h });
+        falling.push({ x: x, y: -shape.h, vy: 0.7, rows: shape.rows, w: shape.w, h: shape.h, top: shape.top, bottom: shape.bottom });
 
         // The splash startles the whole tank; fish near it bolt hardest.
         for (var i = 0; i < fish.length; i++) {
@@ -512,10 +558,25 @@
                 }
             }
 
-            var rest = restingRow(Math.round(r.x), r.w, r.h);
+            var rest = restingRow(r, Math.round(r.x));
             if (r.y >= rest) {
+                // It has met something. Does it sit, or roll off the shoulder?
+                var sup = supportInfo(r, Math.round(r.x), rest);
+                r.rolls = (r.rolls || 0) + (sup.stable ? 0 : 1);
+                if (!sup.stable && r.rolls < 40) {
+                    r.y = rest;
+                    var nx = Math.round(r.x) + sup.roll;
+                    if (nx < 0 || nx + r.w > COLS) {
+                        // Wedged against the glass: let it settle where it is.
+                    } else {
+                        r.x = nx;
+                        r.vy = 0.6;
+                        continue;
+                    }
+                }
+
                 falling.splice(i, 1);
-                rocks.push({ x: Math.round(r.x), y: rest, w: r.w, h: r.h, rows: r.rows });
+                rocks.push({ x: Math.round(r.x), y: rest, w: r.w, h: r.h, rows: r.rows, top: r.top, bottom: r.bottom });
                 if (rocks.length > 14) dropOldestRock();
                 disturb = 26;
                 disturbX = Math.round(r.x);
@@ -535,16 +596,39 @@
 
     // Retire the oldest rock that nothing is resting on, so a pile never
     // loses the rock holding it up.
+    // Is o resting on r? (Their surfaces touch in at least one column.)
+    function restsOn(o, r) {
+        for (var c = 0; c < o.w; c++) {
+            if (o.bottom[c] < 0) continue;
+            var k = (o.x + c) - r.x;
+            if (k < 0 || k >= r.w || r.top[k] < 0) continue;
+            if (o.y + o.bottom[c] + 1 === r.y + r.top[k]) return true;
+        }
+        return false;
+    }
+
     function dropOldestRock() {
         for (var i = 0; i < rocks.length; i++) {
             var r = rocks[i], held = false;
             for (var j = 0; j < rocks.length; j++) {
-                var o = rocks[j];
-                if (o !== r && o.x + o.w > r.x && r.x + r.w > o.x && o.y < r.y) { held = true; break; }
+                if (rocks[j] !== r && restsOn(rocks[j], r)) { held = true; break; }
             }
-            if (!held) { rocks.splice(i, 1); return; }
+            if (!held) { rocks.splice(i, 1); settlePile(); return; }
         }
         rocks.shift();
+        settlePile();
+    }
+
+    // Anything left hanging after a rock is removed falls again.
+    function settlePile() {
+        for (var i = rocks.length - 1; i >= 0; i--) {
+            var r = rocks[i];
+            if (r.y < restingRow(r, r.x, r)) {
+                rocks.splice(i, 1);
+                falling.push({ x: r.x, y: r.y, vy: 0.5, rows: r.rows, w: r.w, h: r.h,
+                               top: r.top, bottom: r.bottom, rolls: 0 });
+            }
+        }
     }
 
     function drawRock(r, x, y) {
