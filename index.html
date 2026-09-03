@@ -428,15 +428,28 @@
             : ['tetra', 'tetra', 'hatchet', 'angel', 'cory', 'cory'];
         for (i = 0; i < roster.length; i++) {
             var sp = SPECIES[roster[i]];
+            var spawnY = Math.round(rand(ROWS * sp.band[0], ROWS * sp.band[1]));
+            var spawnX = rand(2, Math.max(3, COLS - sp.w - 2));
+            for (var tries = 0; tries < 24; tries++) {
+                var clash = false;
+                for (var q = 0; q < fish.length; q++) {
+                    var o = fish[q];
+                    if (spawnX + sp.w + 4 > o.x && o.x + o.sp.w + 4 > spawnX &&
+                        spawnY + sp.h + 3 > o.y && o.y + o.sp.h + 3 > spawnY) { clash = true; break; }
+                }
+                if (!clash) break;
+                spawnX = rand(2, Math.max(3, COLS - sp.w - 2));
+                spawnY = Math.round(rand(ROWS * sp.band[0], ROWS * sp.band[1]));
+            }
             fish.push({
                 sp: sp,
-                x: rand(2, Math.max(3, COLS - sp.w - 2)),
-                y: Math.round(rand(ROWS * sp.band[0], ROWS * sp.band[1])),
+                x: spawnX,
+                y: spawnY,
+                drawY: spawnY,
                 dir: Math.random() < 0.5 ? -1 : 1,
                 speed: rand(sp.speed[0], sp.speed[1]),
                 phase: rand(0, Math.PI * 2),
                 bob: rand(sp.bob[0], sp.bob[1]),
-                drawY: 0,
                 dart: 0,
                 flee: 0,
                 fleeT: 0,
@@ -650,6 +663,35 @@
         return false;
     }
 
+    // Fish keep out of each other's way: no swimming through a neighbour.
+    function fishHit(self, x, y) {
+        for (var i = 0; i < fish.length; i++) {
+            var g = fish[i];
+            if (g === self) continue;
+            if (x + self.sp.w > g.x && g.x + g.sp.w > x &&
+                y + self.sp.h > g.drawY && g.drawY + g.sp.h > y) return true;
+        }
+        return false;
+    }
+
+    // How crowded a fish feels, as a direction to ease away in.
+    function personalSpace(f) {
+        var sx = 0, sy = 0, near = false;
+        for (var i = 0; i < fish.length; i++) {
+            var g = fish[i];
+            if (g === f) continue;
+            var dx = (f.x + f.sp.w / 2) - (g.x + g.sp.w / 2);
+            var dy = (f.drawY + f.sp.h / 2) - (g.drawY + g.sp.h / 2);
+            if (Math.abs(dx) < (f.sp.w + g.sp.w) / 2 + 5 &&
+                Math.abs(dy) < (f.sp.h + g.sp.h) / 2 + 4) {
+                near = true;
+                sx += dx >= 0 ? 1 : -1;
+                sy += dy >= 0 ? 1 : -1;
+            }
+        }
+        return near ? { x: sx, y: sy } : null;
+    }
+
     // A fish bolts away from (rx, ry): horizontally first, with a vertical
     // kick so the whole tank visibly scatters.
     function startle(f, rx, ry, power) {
@@ -853,13 +895,29 @@
 
             if (f.turnLock > 0) f.turnLock--;
             var rush = f.dart > 0 ? f.sp.rush : 1;
+            var space = personalSpace(f);
+            var tangled = fishHit(f, f.x, f.drawY);
             var step = f.dir * f.speed * rush;
-            if (blockedBy(f.x + step, f.drawY, fw, fh)) {
-                if (f.turnLock <= 0) { f.dir = -f.dir; f.turnLock = 12; }
+
+            if (tangled && space) {
+                // Already sharing a space: head straight out of it.
+                f.dir = space.x >= 0 ? 1 : -1;
                 step = f.dir * f.speed * rush;
                 if (blockedBy(f.x + step, f.drawY, fw, fh)) step = 0;
+            } else if (blockedBy(f.x + step, f.drawY, fw, fh) || fishHit(f, f.x + step, f.drawY)) {
+                if (f.turnLock <= 0) { f.dir = -f.dir; f.turnLock = 12; }
+                step = f.dir * f.speed * rush;
+                if (blockedBy(f.x + step, f.drawY, fw, fh) || fishHit(f, f.x + step, f.drawY)) step = 0;
             }
             f.x += step;
+
+            // Ease apart from a crowding neighbour, one notch at a time.
+            if (space) {
+                var lift = space.y >= 0 ? 0.5 : -0.5;
+                var sy2 = Math.max(1, Math.min(maxDrawY - 2, f.y + lift));
+                var sDraw = Math.round(sy2 + Math.sin(t * f.bob + f.phase) * 2);
+                if (!blockedBy(f.x, sDraw, fw, fh) && (tangled || !fishHit(f, f.x, sDraw))) f.y = sy2;
+            }
 
             if (f.fleeT > 0) {
                 f.fleeT--;
