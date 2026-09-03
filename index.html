@@ -460,6 +460,7 @@
                 x: side < 0 ? 8 : COLS - BAG[0].length - 8,
                 drift: -side,
                 phase: rand(0, Math.PI * 2),
+                state: 'float', tipT: 0, tipDir: 1, lift: 0,
                 theta: 0.12, omega: 0.03,   // tilt, and how fast it is rolling
                 bobY: 0, bobV: 0,
                 fx: 6, fvx: 0.25,           // where the fish is inside the bag
@@ -668,9 +669,13 @@
     }
 
     // The floating bag is solid: fish cannot swim through or behind it.
+    function bagTop() {
+        return WATER - 12 + Math.round(bag.bobY - bag.lift);
+    }
+
     function bagHit(x, y, w, h) {
         if (!bag) return false;
-        var by = WATER - 12 + Math.round(bag.bobY);
+        var by = bagTop();
         if (y + h <= by || y >= by + bag.h) return false;
         var mid = bag.h / 2;
         var r0 = Math.max(0, y - by), r1 = Math.min(bag.h, y + h - by);
@@ -942,7 +947,7 @@
             // Lift clear immediately if a rock came to rest on top of a fish.
             for (var esc = 0; esc < 12 && blockedBy(f.x, f.drawY, fw, fh); esc++) { f.y -= 1; f.drawY -= 1; }
             // ... and duck away downward if the drifting bag catches one.
-            for (var esc2 = 0; esc2 < 12 && bagHit(f.x, f.drawY, fw, fh); esc2++) { f.y += 1; f.drawY += 1; }
+            if (bagHit(f.x, f.drawY, fw, fh)) { f.y += 1; f.drawY += 1; }
 
             if (f.sp.shoal && f.dart <= 0) {
                 var n = 0, sumY = 0, vote = 0, nearestDx = null;
@@ -958,9 +963,18 @@
                     }
                 }
                 if (n > 0) {
-                    if (tick % 9 === 0 && vote !== 0) {
+                    if (tick % 5 === 0 && vote !== 0) {
                         var want = vote > 0 ? 1 : -1;
-                        if (want !== f.dir && f.turnLock <= 0) { f.dir = want; f.turnLock = 6; }
+                        // Fall back in with the group even if we just turned to
+                        // dodge someone -- as long as that way is actually clear.
+                        var probe = f.x + want * f.speed;
+                        if (want !== f.dir && !blockedBy(probe, f.drawY, f.sp.w, f.sp.h) &&
+                            !fishHit(f, probe, f.drawY) && !critterHit(probe, f.drawY, f.sp.w, f.sp.h) &&
+                            !bagHit(probe, f.drawY, f.sp.w, f.sp.h) &&
+                            probe > 1 && probe + f.sp.w < COLS - 1) {
+                            f.dir = want;
+                            f.turnLock = 4;
+                        }
                     }
                     var meanY = sumY / n;
                     if (Math.abs(meanY - f.y) > 13) {
@@ -1007,6 +1021,16 @@
             }
             f.x += step;
 
+            // Settle back into the depth this species keeps to.
+            var bandTop = ROWS * f.sp.band[0], bandLow = ROWS * f.sp.band[1];
+            if (!f.sp.shoal && (f.y < bandTop - 4 || f.y > bandLow + 4)) {
+                var seek = f.y < bandTop ? 0.2 : -0.2;
+                var ny2 = Math.max(WATER + 3, Math.min(maxDrawY - 2, f.y + seek));
+                var nDraw2 = Math.round(ny2 + Math.sin(t * f.bob + f.phase) * (f.sp.bobAmp || 2));
+                if (!blockedBy(f.x, nDraw2, fw, fh) && !critterHit(f.x, nDraw2, fw, fh) &&
+                    !bagHit(f.x, nDraw2, fw, fh) && !fishHit(f, f.x, nDraw2)) f.y = ny2;
+            }
+
             // Ease apart from a crowding neighbour, one notch at a time.
             if (space) {
                 var lift = space.y >= 0 ? 0.7 : -0.7;
@@ -1038,32 +1062,58 @@
             if (bag.x < 7) { bag.x = 7; bag.drift = 1; }
             if (bag.x + bag.w > COLS - 7) { bag.x = COLS - 7 - bag.w; bag.drift = -1; }
 
-            // Floating plastic: a damped roll and bob, nudged by the water.
-            bag.omega += -0.05 * bag.theta - 0.07 * bag.omega + rand(-0.004, 0.004);
-            bag.theta = Math.max(-0.42, Math.min(0.42, bag.theta + bag.omega));
-            bag.bobV += -0.05 * bag.bobY - 0.09 * bag.bobV + rand(-0.03, 0.03);
-            bag.bobY = Math.max(-2.5, Math.min(2.5, bag.bobY + bag.bobV));
+            if (bag.state === 'float') {
+                // Floating plastic: a damped roll and bob, nudged by the water.
+                bag.omega += -0.05 * bag.theta - 0.07 * bag.omega + rand(-0.004, 0.004);
+                bag.theta = Math.max(-0.42, Math.min(0.42, bag.theta + bag.omega));
+                bag.bobV += -0.05 * bag.bobY - 0.09 * bag.bobV + rand(-0.03, 0.03);
+                bag.bobY = Math.max(-2.5, Math.min(2.5, bag.bobY + bag.bobV));
 
-            // the fish has room to swim in there
-            var span = bag.w - 8 - bag.fish.sp.w;
-            bag.fx += bag.fvx;
-            if (bag.fx < 0) { bag.fx = 0; bag.fvx = Math.abs(bag.fvx); bag.fish.dir = 1; }
-            if (bag.fx > span) { bag.fx = span; bag.fvx = -Math.abs(bag.fvx); bag.fish.dir = -1; }
-            var drop = (bag.h - 4) - 13 - bag.fish.sp.h;
-            bag.fy += bag.fvy;
-            if (bag.fy < 0) { bag.fy = 0; bag.fvy = Math.abs(bag.fvy); }
-            if (bag.fy > drop) { bag.fy = drop; bag.fvy = -Math.abs(bag.fvy); }
+                // the fish has room to swim in there
+                var span = bag.w - 8 - bag.fish.sp.w;
+                bag.fx += bag.fvx;
+                if (bag.fx < 0) { bag.fx = 0; bag.fvx = Math.abs(bag.fvx); bag.fish.dir = 1; }
+                if (bag.fx > span) { bag.fx = span; bag.fvx = -Math.abs(bag.fvx); bag.fish.dir = -1; }
+                var drop = (bag.h - 4) - 13 - bag.fish.sp.h;
+                bag.fy += bag.fvy;
+                if (bag.fy < 0) { bag.fy = 0; bag.fvy = Math.abs(bag.fvy); }
+                if (bag.fy > drop) { bag.fy = drop; bag.fvy = -Math.abs(bag.fvy); }
 
-            if (tick >= bag.until) {
-                var newcomer = bag.fish;
-                newcomer.bagged = false;
-                newcomer.y = WATER + BAG.length;
-                newcomer.drawY = newcomer.y;
-                splash = { x: bag.x + bag.w / 2, t0: tick };
-                for (var bb = 0; bb < 12; bb++) {
-                    bubbleAt(Math.round(bag.x + bag.w / 2) + irand(-5, 5), WATER + irand(2, 9), irand(1, 4));
+                if (tick >= bag.until) {
+                    bag.state = 'tip';
+                    bag.tipT = 0;
+                    bag.tipDir = (bag.x + bag.w / 2 < COLS / 2) ? 1 : -1;
                 }
-                bag = null;
+            } else if (bag.state === 'tip') {
+                // Tipped over so the fish can swim out of the mouth.
+                bag.tipT++;
+                bag.theta += (bag.tipDir * 1.0 - bag.theta) * 0.10;
+                bag.bobY += (2 - bag.bobY) * 0.08;
+                bag.fx = Math.max(0, Math.min(bag.w - 8 - bag.fish.sp.w,
+                                              bag.fx + bag.tipDir * 0.7));
+                bag.fy = Math.max(0, bag.fy - 0.35);
+
+                if (bag.tipT === 18) {
+                    var newcomer = bag.fish;
+                    newcomer.bagged = false;
+                    newcomer.x = bag.x + 4 + bag.fx;
+                    newcomer.y = bagTop() + 13 + bag.fy;
+                    newcomer.drawY = Math.round(newcomer.y);
+                    newcomer.dir = bag.tipDir;
+                    newcomer.flee = 1;          // slips downward out of the bag
+                    newcomer.fleeT = 26;
+                    newcomer.dart = 12;
+                    splash = { x: bag.x + bag.w / 2, t0: tick };
+                    for (var bb = 0; bb < 12; bb++) {
+                        bubbleAt(Math.round(bag.x + bag.w / 2) + irand(-6, 6), WATER + irand(2, 10), irand(1, 4));
+                    }
+                }
+                if (bag.tipT > 30) bag.state = 'lift';
+            } else {
+                // Lifted back out of the tank.
+                bag.lift += 0.9;
+                bag.theta *= 0.95;
+                if (bagTop() + bag.h < 0) bag = null;
             }
         }
 
@@ -1112,7 +1162,7 @@
 
     function drawBag(t) {
         var x = Math.round(bag.x);
-        var y = WATER - 12 + Math.round(bag.bobY);   // waterline crosses it
+        var y = bagTop();                            // waterline crosses it
         var mid = bag.h / 2;
 
         // Leaning the sprite row by row is what reads as a roll.
