@@ -667,6 +667,24 @@
         return false;
     }
 
+    // The floating bag is solid: fish cannot swim through or behind it.
+    function bagHit(x, y, w, h) {
+        if (!bag) return false;
+        var by = WATER - 12 + Math.round(bag.bobY);
+        if (y + h <= by || y >= by + bag.h) return false;
+        var mid = bag.h / 2;
+        var r0 = Math.max(0, y - by), r1 = Math.min(bag.h, y + h - by);
+        for (var r = r0; r < r1; r++) {
+            var row = BAG[r];
+            var left = row.indexOf('#');
+            if (left < 0) continue;
+            var right = row.lastIndexOf('#');
+            var shift = Math.round((r - mid) * bag.theta);
+            if (x + w > bag.x + left + shift && bag.x + right + shift >= x) return true;
+        }
+        return false;
+    }
+
     // Crawlers on the rocks are obstacles too, not just scenery.
     function critterHit(x, y, w, h) {
         for (var i = 0; i < critters.length; i++) {
@@ -923,6 +941,8 @@
 
             // Lift clear immediately if a rock came to rest on top of a fish.
             for (var esc = 0; esc < 12 && blockedBy(f.x, f.drawY, fw, fh); esc++) { f.y -= 1; f.drawY -= 1; }
+            // ... and duck away downward if the drifting bag catches one.
+            for (var esc2 = 0; esc2 < 12 && bagHit(f.x, f.drawY, fw, fh); esc2++) { f.y += 1; f.drawY += 1; }
 
             if (f.sp.shoal && f.dart <= 0) {
                 var n = 0, sumY = 0, vote = 0, nearestDx = null;
@@ -947,7 +967,7 @@
                         var cy = f.y + (meanY > f.y ? 0.22 : -0.22);
                         var cDraw = Math.round(cy + Math.sin(t * f.bob + f.phase) * (f.sp.bobAmp || 2));
                         if (!blockedBy(f.x, cDraw, fw, fh) && !critterHit(f.x, cDraw, fw, fh) &&
-                            !fishHit(f, f.x, cDraw)) f.y = cy;
+                            !bagHit(f.x, cDraw, fw, fh) && !fishHit(f, f.x, cDraw)) f.y = cy;
                     }
                 } else if (nearestDx !== null && tick % 12 === 0 && f.turnLock <= 0) {
                     f.dir = nearestDx >= 0 ? 1 : -1;   // strayed: head back to the school
@@ -979,11 +999,11 @@
                 step = f.dir * f.speed * rush;
                 if (blockedBy(f.x + step, f.drawY, fw, fh)) step = 0;
             } else if (blockedBy(f.x + step, f.drawY, fw, fh) || fishHit(f, f.x + step, f.drawY) ||
-                       critterHit(f.x + step, f.drawY, fw, fh)) {
+                       critterHit(f.x + step, f.drawY, fw, fh) || bagHit(f.x + step, f.drawY, fw, fh)) {
                 if (f.turnLock <= 0) { f.dir = -f.dir; f.turnLock = 12; }
                 step = f.dir * f.speed * rush;
                 if (blockedBy(f.x + step, f.drawY, fw, fh) || fishHit(f, f.x + step, f.drawY) ||
-                    critterHit(f.x + step, f.drawY, fw, fh)) step = 0;
+                    critterHit(f.x + step, f.drawY, fw, fh) || bagHit(f.x + step, f.drawY, fw, fh)) step = 0;
             }
             f.x += step;
 
@@ -993,6 +1013,7 @@
                 var sy2 = Math.max(WATER + 3, Math.min(maxDrawY - 2, f.y + lift));
                 var sDraw = Math.round(sy2 + Math.sin(t * f.bob + f.phase) * (f.sp.bobAmp || 2));
                 if (!blockedBy(f.x, sDraw, fw, fh) && !critterHit(f.x, sDraw, fw, fh) &&
+                    !bagHit(f.x, sDraw, fw, fh) &&
                     (tangled || !fishHit(f, f.x, sDraw))) f.y = sy2;
             }
 
@@ -1000,7 +1021,8 @@
                 f.fleeT--;
                 var ny = Math.min(f.y + f.flee * 0.7, maxDrawY - 2);
                 var nDraw = Math.round(ny + Math.sin(t * f.bob + f.phase) * (f.sp.bobAmp || 2));
-                if (blockedBy(f.x, nDraw, fw, fh) || critterHit(f.x, nDraw, fw, fh)) f.fleeT = 0;
+                if (blockedBy(f.x, nDraw, fw, fh) || critterHit(f.x, nDraw, fw, fh) ||
+                    bagHit(f.x, nDraw, fw, fh)) f.fleeT = 0;
                 else f.y = ny;
             }
             f.y = Math.max(WATER + 3, Math.min(maxDrawY - 2, f.y));
