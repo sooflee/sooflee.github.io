@@ -477,6 +477,19 @@
             break;
         }
 
+        // Nudge anyone who happened to spawn where the bag is floating.
+        if (bag) {
+            for (i = 0; i < fish.length; i++) {
+                var occupant = fish[i];
+                if (occupant.bagged) continue;
+                var guard = 0;
+                while (guard++ < 60 && bagHit(occupant.x, occupant.drawY, occupant.sp.w, occupant.sp.h)) {
+                    occupant.x += (occupant.x + occupant.sp.w / 2 < bag.x + bag.w / 2) ? -1 : 1;
+                    occupant.x = Math.max(1, Math.min(COLS - 1 - occupant.sp.w, occupant.x));
+                }
+            }
+        }
+
         critters = [];
         var kinds = ['snail', 'pleco'];
         CRAWL_CLEAR = 2;
@@ -953,7 +966,13 @@
             // Lift clear immediately if a rock came to rest on top of a fish.
             for (var esc = 0; esc < 12 && blockedBy(f.x, f.drawY, fw, fh); esc++) { f.y -= 1; f.drawY -= 1; }
             // ... and duck away downward if the drifting bag catches one.
-            if (bagHit(f.x, f.drawY, fw, fh)) { f.y += 1; f.drawY += 1; }
+            if (bagHit(f.x, f.drawY, fw, fh)) {
+                var out = (f.x + fw / 2 < bag.x + bag.w / 2) ? -1 : 1;
+                f.x += out;
+                f.dir = out;
+                f.turnLock = 6;
+                if (f.drawY < bagTop() + bag.h) { f.y += 0.5; f.drawY = Math.round(f.y); }
+            }
 
             if (f.sp.shoal && f.dart <= 0) {
                 var n = 0, sumY = 0, vote = 0, nearestDx = null;
